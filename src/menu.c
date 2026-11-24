@@ -52,8 +52,8 @@ enum {
   #ifdef SUPPORT_NORGAMES
   MENUTAB_NORBROWSE,     // Browses Flash games and launches them.
   #endif
-  MENUTAB_SETTINGS,      // General settings / defaults
-  MENUTAB_UILANG,        // UI / Language settings
+  MENUTAB_SETTINGS,      // Unused as a tab (settings live in a pop-up), kept for icon numbering
+  MENUTAB_UILANG,        // Unused (merged into settings), kept for icon numbering
   MENUTAB_TOOLS,         // Tools (advaned menu)
   MENUTAB_INFO,          // Info / About / Updater?
   MENUTAB_MAX,
@@ -76,6 +76,8 @@ enum {
   POPUP_GBA_NORWRITE,          // Write a GBA ROM to NOR
   POPUP_GBA_NORLOAD,           // Launch a NOR game
 #endif
+  POPUP_SYSMENU,               // System menu (START): settings, tools, info
+  POPUP_SETTINGS,              // All settings (general + UI) in a pop-up window
 };
 
 #define BROWSER_ROWS                 8
@@ -96,16 +98,6 @@ enum {
 
 #define FLASH_UNLOCK_KEYS      (KEY_BUTTDOWN|KEY_BUTTB|KEY_BUTTSTA)
 #define FLASH_GO_KEYS          (KEY_BUTTUP|KEY_BUTTL|KEY_BUTTR)
-
-enum {
-  UiSetTheme = 0,
-  UiSetLang  = 1,
-  UiSetRect  = 2,
-  UiSetASpd  = 3,
-  UiSetHid   = 4,
-  UiSetSave  = 5,
-  UiSetMAX   = 5,
-};
 
 enum {
   ToolsSDRAMTest = 0,
@@ -144,6 +136,10 @@ enum {
   DefsLoadPol,
   DefsSavePol,
   DefsPrefDS,
+  SettUiTheme,
+  SettUiLang,
+  SettUiASpd,
+  SettUiHid,
   SettSave,
   SettMAX
 };
@@ -249,6 +245,7 @@ typedef void (*t_mkeyupd_fn)(unsigned newkeys);
 // Info and state for the menu tab
 static struct {
   uint8_t menu_tab;
+  uint8_t ret_tab;                // Tab to return to when leaving tools/info
 
   unsigned anim_state;            // Animation (text rotation) status.
 
@@ -276,11 +273,6 @@ static struct {
     uint8_t maxentries;           // Total file/dir count in current dir
     uint8_t usedblks, freeblks;   // NOR usage info
   } fbrowser;
-
-  // UI settings
-  struct {
-    int selector;                 // Pointed option
-  } uiset;
 
   // Main settings
   struct {
@@ -1018,9 +1010,7 @@ static bool insert_recent_flush(const char *fn, unsigned flags) {
 static bool delete_recent_flush(unsigned entry_num) {
   smenu.recent.maxentries = delete_recent(sdr_state->rentries, smenu.recent.maxentries, entry_num);
 
-  smenu.recent.selector = MIN(smenu.recent.maxentries - 1, smenu.recent.selector);
-  if (!smenu.recent.maxentries)
-    smenu.menu_tab = MENUTAB_ROMBROWSE;
+  smenu.recent.selector = MAX(0, MIN(smenu.recent.maxentries - 1, smenu.recent.selector));
 
   return recent_flush(sdr_state->rentries, smenu.recent.maxentries);
 }
@@ -1409,6 +1399,11 @@ void render_recent(volatile uint8_t *frame) {
                            SCREEN_WIDTH - 24, &smenu.anim_state);
     else
       draw_text_ovf(fn, frame, 20, (1 + i) * 16, SCREEN_WIDTH - 24);
+  }
+
+  if (!smenu.recent.maxentries) {
+    draw_central_text(msgs[lang_id][MSG_BROW_EMPTY], frame, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-8);
+    return;
   }
 
   for (unsigned i = 0; i < 240; i += 16)
@@ -1819,12 +1814,13 @@ void render_rtcpop(volatile uint8_t *frame) {
 
 void render_settings(volatile uint8_t *frame) {
   char tmp[128];
+  draw_box_outline(frame, 2, 240-2, 18, 158, FG_COLOR);
   unsigned baseopt = smenu.set.selector <= 2  ? 0 :
                      smenu.set.selector >= SettMAX - 3 ? SettMAX - 5 :
                      smenu.set.selector - 2;
 
   if (smenu.set.selector > 2)
-    draw_central_text("⯅", frame, 120, 15);
+    draw_central_text("⯅", frame, 120, 19);
   if (smenu.set.selector < SettSave - 2)
     draw_central_text("⯆", frame, 120, 125);
 
@@ -1952,6 +1948,29 @@ void render_settings(volatile uint8_t *frame) {
   }
 
   if (optnum++ >= baseopt && optcnt < maxrows) {
+    npf_snprintf(tmp, sizeof(tmp), "< %u >", menu_theme + 1U);
+    draw_text_ovf(msgs[lang_id][MSG_UIS_THEME], frame, 8, offy + rowh*optcnt, 224);
+    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
+  }
+
+  if (optnum++ >= baseopt && optcnt < maxrows) {
+    npf_snprintf(tmp, sizeof(tmp), "< %s >", msgs[lang_id][MSG_LANG_NAME]);
+    draw_text_ovf(msgs[lang_id][MSG_UIS_LANG], frame, 8, offy + rowh*optcnt, 224);
+    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
+  }
+
+  if (optnum++ >= baseopt && optcnt < maxrows) {
+    npf_snprintf(tmp, sizeof(tmp), "< %s >", msgs[lang_id][MSG_UIS_SPD0 + anim_speed]);
+    draw_text_ovf(msgs[lang_id][MSG_UIS_ANSPD], frame, 8, offy + rowh*optcnt, 224);
+    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
+  }
+
+  if (optnum++ >= baseopt && optcnt < maxrows) {
+    draw_text_ovf(msgs[lang_id][MSG_UIS_BHID], frame, 8, offy + rowh*optcnt, 224);
+    draw_central_text(msgs[lang_id][hide_hidden ? MSG_KNOB_DISABLED : MSG_KNOB_ENABLED], frame, colx, offy + rowh*optcnt++);
+  }
+
+  if (optnum++ >= baseopt && optcnt < maxrows) {
     draw_button_box(frame, 20, 220, 112, 132, smenu.set.selector == SettSave);
     draw_central_text(msgs[lang_id][MSG_UIS_SAVE], frame, 132, 114);
   }
@@ -1996,35 +2015,6 @@ void render_settings(volatile uint8_t *frame) {
   if (smenu.set.selector != SettSave)
     for (unsigned i = 0; i < 240; i += 16)
       render_icon_trans(i, offy + (smenu.set.selector - baseopt) * 20, 63);
-}
-
-void render_ui_settings(volatile uint8_t *frame) {
-  const unsigned colx = 170;
-  char tmpbuf[64];
-  npf_snprintf(tmpbuf, sizeof(tmpbuf), "< %u >", menu_theme + 1U);
-  draw_text_ovf(msgs[lang_id][MSG_UIS_THEME], frame, 8, 22, 224);
-  draw_central_text(tmpbuf, frame, colx, 22 );
-
-  npf_snprintf(tmpbuf, sizeof(tmpbuf), "< %s >", msgs[lang_id][MSG_LANG_NAME]);
-  draw_text_ovf(msgs[lang_id][MSG_UIS_LANG], frame, 8, 22 + 20, 224);
-  draw_central_text(tmpbuf, frame, colx, 22 + 20 );
-
-  draw_text_ovf(msgs[lang_id][MSG_UIS_RECNT], frame, 8, 22 + 40, 224);
-  draw_central_text(msgs[lang_id][recent_menu ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED], frame, colx, 22 + 40 );
-
-  npf_snprintf(tmpbuf, sizeof(tmpbuf), "< %s >", msgs[lang_id][MSG_UIS_SPD0 + anim_speed]);
-  draw_text_ovf(msgs[lang_id][MSG_UIS_ANSPD], frame, 8, 22 + 60, 224);
-  draw_central_text(tmpbuf, frame, colx, 22 + 60 );
-
-  draw_text_ovf(msgs[lang_id][MSG_UIS_BHID], frame, 8, 22 + 80, 224);
-  draw_central_text(msgs[lang_id][hide_hidden ? MSG_KNOB_DISABLED : MSG_KNOB_ENABLED], frame, colx, 22 + 80 );
-
-  if (smenu.uiset.selector != UiSetSave)
-    for (unsigned i = 0; i < 240; i += 16)
-      render_icon_trans(i, 22 + smenu.uiset.selector * 20, 63);
-
-  draw_button_box(frame, 20, 220, 132, 152, smenu.uiset.selector == UiSetSave);
-  draw_central_text(msgs[lang_id][MSG_UIS_SAVE], frame, 120, 134);
 }
 
 void render_info(volatile uint8_t *frame) {
@@ -2096,6 +2086,31 @@ void render_tools(volatile uint8_t *frame) {
     render_icon_trans(i, 26 + smenu.tools.selector * 22, 63);
 }
 
+// Tabs that L/R cycle through. Settings, tools and info live in the START menu.
+static const uint8_t game_tabs[] = {
+  MENUTAB_RECENT,
+  MENUTAB_ROMBROWSE,
+  #ifdef SUPPORT_NORGAMES
+  MENUTAB_NORBROWSE,
+  #endif
+};
+#define game_tab_cnt (sizeof(game_tabs) / sizeof(game_tabs[0]))
+
+// System menu (opened with START): three icons, settings / tools / info.
+static const uint8_t sysmenu_tabs[3] = { MENUTAB_SETTINGS, MENUTAB_TOOLS, MENUTAB_INFO };
+
+void render_sysmenu_popup(volatile uint8_t *frame) {
+  draw_box_full(frame, 60, 180, 52, 108, FG_COLOR, BG_COLOR);
+  for (unsigned i = 0; i < 3; i++) {
+    const unsigned x = 72 + i * 32;
+    draw_button_box(frame, x - 4, x + 20, 62, 90, i == (unsigned)spop.selector);
+    if (i == (unsigned)spop.selector)
+      render_icon(x, 68, sysmenu_tabs[i] + ICON_RECENT);
+    else
+      render_icon_trans(x, 68, sysmenu_tabs[i] + ICON_RECENT);
+  }
+}
+
 void reload_theme(unsigned thnum) {
   // Palette 0..15 contains the main menu template colors
   MEM_PALETTE[FG_COLOR] = themes[thnum].fg_color;
@@ -2125,6 +2140,8 @@ static const struct {
   { render_gba_norwrite,   GbaNorWrCNT },
   { render_gba_norload,    GbaNorLoadCNT },
   #endif
+  { render_sysmenu_popup,  1 },
+  { render_settings,       1 },
 };
 
 // Renders the menu. Arg0 represents the frame count difference with the
@@ -2137,12 +2154,16 @@ void menu_render(unsigned fcnt) {
   dma_memset16(&frame[0], dup8(FG_COLOR), SCREEN_WIDTH*16/2);
 
   // Render icon bar
-  int mintab = (recent_menu && smenu.recent.maxentries) ? MENUTAB_RECENT : MENUTAB_ROMBROWSE;
-  for (unsigned i = mintab; i < MENUTAB_MAX; i++)
-    if (i == smenu.menu_tab)
-      render_icon((i - mintab)*16, 0, i + ICON_RECENT);
-    else
-      render_icon_trans((i - mintab)*16, 0, i + ICON_RECENT);
+  if (smenu.menu_tab == MENUTAB_TOOLS || smenu.menu_tab == MENUTAB_INFO) {
+    // Full screen system pages show just their own icon (B goes back).
+    render_icon(0, 0, smenu.menu_tab + ICON_RECENT);
+  } else {
+    for (unsigned i = 0; i < game_tab_cnt; i++)
+      if (game_tabs[i] == smenu.menu_tab)
+        render_icon(i*16, 0, game_tabs[i] + ICON_RECENT);
+      else
+        render_icon_trans(i*16, 0, game_tabs[i] + ICON_RECENT);
+  }
 
   // Render the main area
   dma_memset16(&frame[16*SCREEN_WIDTH], dup8(BG_COLOR), SCREEN_WIDTH*(SCREEN_HEIGHT-16) / 2);
@@ -2162,8 +2183,8 @@ void menu_render(unsigned fcnt) {
         #ifdef SUPPORT_NORGAMES
         render_flashbrowser,
         #endif
-        render_settings,
-        render_ui_settings,
+        render_settings,   // Unused slot (settings are a pop-up)
+        render_settings,   // Unused slot (UI settings merged into settings)
         render_tools,
         render_info,
       };
@@ -2210,7 +2231,7 @@ void menu_init(int sram_testres) {
 
   reload_theme(menu_theme);
 
-  smenu.menu_tab = (recent_menu && smenu.recent.maxentries) ? MENUTAB_RECENT : MENUTAB_ROMBROWSE;
+  smenu.menu_tab = smenu.recent.maxentries ? MENUTAB_RECENT : MENUTAB_ROMBROWSE;
 
   // Load icons into VRAM
   dma_memcpy16(MEM_VRAM_OBJS, icons_img, sizeof(icons_img) / 2);
@@ -3099,8 +3120,28 @@ static void keypress_menu_settings(unsigned newkeys) {
     else if (smenu.set.selector == DefsRTCSpeed)
       rtcspeed_default = (rtcspeed_default + 1) % RTC_SPEED_CNT;
   }
+  if (newkeys & KEY_BUTTLEFT) {
+    if (smenu.set.selector == SettUiTheme)
+      menu_theme = menu_theme ? menu_theme - 1 : 0;
+    else if (smenu.set.selector == SettUiASpd)
+      anim_speed = anim_speed ? anim_speed - 1 : 0;
+    else if (smenu.set.selector == SettUiLang)
+      lang_id = (lang_id + LANG_COUNT - 1) % LANG_COUNT;
+  }
+  if (newkeys & KEY_BUTTRIGHT) {
+    if (smenu.set.selector == SettUiTheme)
+      menu_theme = MIN(THEME_COUNT - 1, menu_theme + 1);
+    else if (smenu.set.selector == SettUiASpd)
+      anim_speed = MIN(animspd_cnt - 1, anim_speed + 1);
+    else if (smenu.set.selector == SettUiLang)
+      lang_id = (lang_id + 1) % LANG_COUNT;
+  }
   if (newkeys & (KEY_BUTTLEFT | KEY_BUTTRIGHT)) {
-    if (smenu.set.selector == SettBootType)
+    if (smenu.set.selector == SettUiHid) {
+      hide_hidden ^= 1;
+      browser_reload_filter();
+    }
+    else if (smenu.set.selector == SettBootType)
       boot_bios_splash ^= 1;
     else if (smenu.set.selector == SettCheatEn)
       enable_cheats ^= 1;
@@ -3133,57 +3174,16 @@ static void keypress_menu_settings(unsigned newkeys) {
   }
   if (newkeys & KEY_BUTTA && smenu.set.selector == SettSave) {
     smenu.set.selector = 0;
-    if (save_settings())
-      spop.alert_msg = msgs[lang_id][MSG_OK_SETSAVE];
-    else
-      spop.alert_msg = msgs[lang_id][MSG_ERR_SETSAVE];
-  }
-}
-
-static void keypress_menu_uisettings(unsigned newkeys) {
-  if (newkeys & KEY_BUTTUP)
-    smenu.uiset.selector = MAX(0, smenu.uiset.selector - 1);
-  if (newkeys & KEY_BUTTDOWN)
-    smenu.uiset.selector = MIN(UiSetMAX, smenu.uiset.selector + 1);
-  if (newkeys & KEY_BUTTLEFT) {
-    if (smenu.uiset.selector == UiSetTheme)
-      menu_theme = menu_theme ? menu_theme - 1 : 0;
-    else if (smenu.uiset.selector == UiSetASpd)
-      anim_speed = anim_speed ? anim_speed - 1 : 0;
-    else if (smenu.uiset.selector == UiSetHid)
-      hide_hidden ^= 1;
-    else if (smenu.uiset.selector == UiSetRect)
-      recent_menu ^= 1;
-    else if (smenu.uiset.selector == UiSetLang)
-      lang_id = (lang_id + LANG_COUNT - 1) % LANG_COUNT;
-  }
-  if (newkeys & KEY_BUTTRIGHT) {
-    if (smenu.uiset.selector == UiSetTheme)
-      menu_theme = MIN(THEME_COUNT - 1, menu_theme + 1);
-    else if (smenu.uiset.selector == UiSetASpd)
-      anim_speed = MIN(animspd_cnt - 1, anim_speed + 1);
-    else if (smenu.uiset.selector == UiSetHid)
-      hide_hidden ^= 1;
-    else if (smenu.uiset.selector == UiSetRect)
-      recent_menu ^= 1;
-    else if (smenu.uiset.selector == UiSetLang)
-      lang_id = (lang_id + 1) % LANG_COUNT;
-  }
-
-  if (newkeys & KEY_BUTTA && smenu.uiset.selector == UiSetSave) {
-    smenu.uiset.selector = 0;
-    if (save_ui_settings())
+    bool ok = save_settings();
+    ok = save_ui_settings() && ok;
+    if (ok)
       spop.alert_msg = msgs[lang_id][MSG_OK_SETSAVE];
     else
       spop.alert_msg = msgs[lang_id][MSG_ERR_SETSAVE];
   }
 
-  // Apply settings immediately
+  // Apply theme changes immediately
   reload_theme(menu_theme);
-
-  // This is relatively cheap, we can trigger it here already (no sorting)
-  if ((newkeys & (KEY_BUTTLEFT | KEY_BUTTRIGHT)) && smenu.uiset.selector == UiSetHid)
-    browser_reload_filter();
 }
 
 static void keypress_menu_tools(unsigned newkeys) {
@@ -3273,6 +3273,28 @@ static void keypress_menu_info(unsigned newkeys) {
 }
 
 
+static void keypress_popup_sysmenu(unsigned newkeys) {
+  if (newkeys & (KEY_BUTTLEFT | KEY_BUTTUP))
+    spop.selector = MAX(0, spop.selector - 1);
+  if (newkeys & (KEY_BUTTRIGHT | KEY_BUTTDOWN))
+    spop.selector = MIN(2, spop.selector + 1);
+
+  if (newkeys & KEY_BUTTSTA)
+    spop.pop_num = POPUP_NONE;
+  else if (newkeys & KEY_BUTTA) {
+    if (spop.selector == 0) {
+      spop.pop_num = POPUP_SETTINGS;
+      spop.anim = 0;
+    } else {
+      // Tools and info are full screen pages, B returns to the previous tab.
+      smenu.ret_tab = smenu.menu_tab;
+      smenu.menu_tab = sysmenu_tabs[(int)spop.selector];
+      smenu.anim_state = 0;
+      spop.pop_num = POPUP_NONE;
+    }
+  }
+}
+
 void menu_keypress(unsigned newkeys) {
   if (spop.alert_msg) {
     // Modal message pop up!
@@ -3320,14 +3342,21 @@ void menu_keypress(unsigned newkeys) {
   }
   else if (spop.pop_num) {
     const int subcnt = popup_windows[spop.pop_num - 1].max_submenu;
-    if (newkeys & KEY_BUTTL)
+    // L/R switch sub-pages, but only in pop-ups that actually have sub-pages
+    // (the START menu and the settings window do not use them).
+    if (subcnt > 1 && (newkeys & KEY_BUTTL))
       spop.submenu = (spop.submenu + subcnt - 1) % subcnt;
-    if (newkeys & KEY_BUTTR)
+    if (subcnt > 1 && (newkeys & KEY_BUTTR))
       spop.submenu = (spop.submenu + 1) % subcnt;
 
-    // Close pop-up on B button
-    if (newkeys & KEY_BUTTB)
-      spop.pop_num = 0;
+    // Close pop-up on B button (settings go back to the START menu)
+    if (newkeys & KEY_BUTTB) {
+      if (spop.pop_num == POPUP_SETTINGS) {
+        spop.pop_num = POPUP_SYSMENU;
+        spop.selector = 0;
+      } else
+        spop.pop_num = POPUP_NONE;
+    }
     else {
       const t_mkeyupd_fn keyfns[] = {
         NULL,
@@ -3339,16 +3368,30 @@ void menu_keypress(unsigned newkeys) {
         keypress_popup_norwrite,
         keypress_popup_norload,
         #endif
+        keypress_popup_sysmenu,
+        keypress_menu_settings,
       };
       keyfns[spop.pop_num](newkeys);
     }
   } else {
-    // Menu change via trigger buttons
-    int mintab = (recent_menu && smenu.recent.maxentries) ? MENUTAB_RECENT : MENUTAB_ROMBROWSE;
-    if (newkeys & KEY_BUTTL)
-      smenu.menu_tab = MAX((int)smenu.menu_tab - 1, mintab);
-    else if (newkeys & KEY_BUTTR)
-      smenu.menu_tab = MIN(smenu.menu_tab + 1, MENUTAB_MAX - 1);
+    const bool sys_page = (smenu.menu_tab == MENUTAB_TOOLS || smenu.menu_tab == MENUTAB_INFO);
+    if (!sys_page) {
+      // L/R cycles through the game tabs, START opens the system menu.
+      if (newkeys & (KEY_BUTTL | KEY_BUTTR)) {
+        unsigned cur = 0;
+        for (unsigned i = 0; i < game_tab_cnt; i++)
+          if (game_tabs[i] == smenu.menu_tab)
+            cur = i;
+        cur = (newkeys & KEY_BUTTL) ? (cur + game_tab_cnt - 1) % game_tab_cnt
+                                    : (cur + 1) % game_tab_cnt;
+        smenu.menu_tab = game_tabs[cur];
+      }
+      if (newkeys & KEY_BUTTSTA) {
+        spop.pop_num = POPUP_SYSMENU;
+        spop.selector = 0;
+        spop.anim = 0;
+      }
+    }
 
     if (newkeys & (KEY_BUTTL | KEY_BUTTR | KEY_BUTTUP | KEY_BUTTDOWN))
       smenu.anim_state = 0;
@@ -3359,12 +3402,20 @@ void menu_keypress(unsigned newkeys) {
       #ifdef SUPPORT_NORGAMES
       keypress_menu_norbrowse,
       #endif
-      keypress_menu_settings,
-      keypress_menu_uisettings,
+      keypress_menu_settings,   // Unused slot
+      keypress_menu_settings,   // Unused slot
       keypress_menu_tools,
       keypress_menu_info,
     };
-    keyfns[smenu.menu_tab](newkeys);
+    // Do not handle the key that just opened a pop-up in the page below.
+    if (!spop.pop_num)
+      keyfns[smenu.menu_tab](newkeys);
+
+    // B leaves the full screen tools/info pages (unless it is the flash unlock combo).
+    if (sys_page && (newkeys & KEY_BUTTB) && !(curr_pressed_keys() & KEY_BUTTSTA)) {
+      smenu.menu_tab = smenu.ret_tab;
+      smenu.anim_state = 0;
+    }
   }
 }
 

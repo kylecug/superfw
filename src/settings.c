@@ -81,7 +81,7 @@ const uint8_t animspd_lut[] = {
 // Menu settings
 uint8_t menu_theme = 0;
 uint8_t lang_id = 0;
-uint8_t recent_menu = 1;
+uint8_t recent_menu = 1;   // Always on (the recent tab is no longer optional)
 uint8_t hide_hidden = 0;
 uint8_t anim_speed = animspd_cnt / 2;
 
@@ -127,10 +127,9 @@ bool save_ui_settings() {
   npf_snprintf(buf, sizeof(buf),
     "theme=%u\n"
     "langcode=%c%c\n"
-    "recent_menu=%u\n"
     "anim_speed=%u\n"
     "hide_hidden=%u\n",
-    menu_theme, (lc & 0xFF), (lc >> 8), recent_menu, anim_speed, hide_hidden);
+    menu_theme, (lc & 0xFF), (lc >> 8), anim_speed, hide_hidden);
 
   UINT wrbytes;
   FRESULT res = f_write(&fd, buf, strlen(buf), &wrbytes);
@@ -240,7 +239,6 @@ static void parse_ui_settings(void *usr, const char *var, const char *value) {
       unsigned maxval;
     } uintset[] = {
       { "theme",       &menu_theme,  THEME_COUNT },
-      { "recent_menu", &recent_menu, 2 },
       { "hide_hidden", &hide_hidden, 2 },
       { "anim_speed",  &anim_speed,  animspd_cnt },
     };
