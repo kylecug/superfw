@@ -83,7 +83,7 @@ enum {
 };
 
 #define BROWSER_ROWS                 8
-#define RECENT_ROWS                  9
+#define RECENT_ROWS                  8
 #define NORGAMES_ROWS                8
 
 // First entries reserved for the logo palette.
@@ -1384,7 +1384,73 @@ static void draw_central_text_wrapped(const char *t, volatile uint8_t *frame, un
   }
 }
 
+// ---- Corner windows --------------------------------------------------------
+// The pop-ups opened from the START menu are windows anchored to the bottom
+// right corner of the 240x160 screen. All x coordinates/widths are even since
+// we fill the frame buffer 16 bits at a time.
+#define CW_LEFT     56                          // Big window (settings, tools, info)
+#define CW_RIGHT    238
+#define CW_TOP      34
+#define CW_BOTTOM   158
+#define CW_CX       146                         // Horizontal center of the big window
+#define SM_LEFT     142                         // Small window (START menu)
+#define SM_TOP      90
+#define CW_ROWH     20
+#define CW_ROWS     5
+#define CW_ROW0Y    (CW_TOP + 4)                // First row
+#define CW_ROWW     (CW_RIGHT - CW_LEFT - 4 - 4)  // Row width, leaves room for the scroll bar
+#define SM_ROWW     (CW_RIGHT - SM_LEFT - 4)
+#define CW_HELPY    (CW_ROW0Y + CW_ROWS * CW_ROWH + 2)
+
+static void fill_rect(volatile uint8_t *frame, unsigned x, unsigned y, unsigned w, unsigned h, uint8_t color) {
+  for (unsigned r = 0; r < h; r++)
+    dma_memset16(&frame[(y + r) * SCREEN_WIDTH + x], dup8(color), w / 2);
+}
+
+static void draw_rightj_ovf(const char *t, volatile uint8_t *frame, unsigned xr, unsigned y, unsigned maxw) {
+  if (font_width(t) <= maxw)
+    draw_rightj_text(t, frame, xr, y);
+  else
+    draw_text_ovf(t, frame, xr - maxw, y, maxw);
+}
+
+static void draw_corner_window(volatile uint8_t *frame, unsigned left, unsigned top) {
+  draw_box_full(frame, left, CW_RIGHT, top, CW_BOTTOM, FG_COLOR, BG_COLOR);
+}
+
+// One row of a window list: label on the left, optional value on the right.
+static void cw_row(volatile uint8_t *frame, unsigned left, unsigned width, unsigned y, bool sel,
+                   const char *label, const char *value) {
+  fill_rect(frame, left + 2, y, width, CW_ROWH - 2, sel ? HI_COLOR : BG_COLOR);
+  const unsigned tx = left + 6;
+  const unsigned xr = left + 2 + width - 4;
+  const unsigned vw = value ? MIN(font_width(value), 92U) : 0;
+  const unsigned lw = xr - tx - (vw ? vw + 4 : 0);
+  draw_text_ovf(label, frame, tx, y + 1, lw);
+  if (value)
+    draw_rightj_ovf(value, frame, xr, y + 1, vw);
+}
+
+// Vertical scroll bar for a window list (only when there is more than one page).
+static void cw_scrollbar(volatile uint8_t *frame, int base, int total) {
+  if (total <= CW_ROWS)
+    return;
+  const unsigned track = CW_ROWS * CW_ROWH;
+  const unsigned th = MAX(8U, track * CW_ROWS / total);
+  const unsigned pos = (track - th) * base / (total - CW_ROWS);
+  fill_rect(frame, CW_RIGHT - 4, CW_ROW0Y + pos, 2, th, FG_COLOR);
+}
+
+static int cw_base(int sel, int total) {
+  if (total <= CW_ROWS || sel <= 2)
+    return 0;
+  return sel >= total - 3 ? total - CW_ROWS : sel - 2;
+}
+
 void render_recent(volatile uint8_t *frame) {
+  // Footer bar (the START hint is drawn on top of it)
+  dma_memset16(&frame[240*144], dup8(FG_COLOR), 240*16/2);
+
   // Render the list from memory.
   for (unsigned i = 0; i < RECENT_ROWS; i++) {
     if (smenu.recent.seloff + i >= smenu.recent.maxentries)
@@ -1452,7 +1518,7 @@ void render_flashbrowser(volatile uint8_t *frame) {
   human_size(tmp1, sizeof(tmp1), smenu.fbrowser.usedblks * NOR_BLOCK_SIZE);
   human_size(tmp2, sizeof(tmp2), NOR_GAMEBLOCK_COUNT * NOR_BLOCK_SIZE);
   npf_snprintf(tmp, sizeof(tmp), "Flash usage: %s/%s", tmp1, tmp2);
-  draw_text_ovf(tmp, frame, 8, 144, SCREEN_WIDTH - 16);
+  draw_text_ovf(tmp, frame, 8, 144, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
 }
 #endif
 
@@ -1494,7 +1560,7 @@ void render_browser(volatile uint8_t *frame) {
   }
 
   // Draw path, cut left part if necessary.
-  draw_text_leftovf(smenu.browser.cpath, frame, 8, 144, SCREEN_WIDTH - 8);
+  draw_text_leftovf(smenu.browser.cpath, frame, 8, 144, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
 
   char selinfo[16];
   npf_snprintf(selinfo, sizeof(selinfo), "%u/%d", smenu.browser.selector + 1, smenu.browser.dispentries);
@@ -1813,209 +1879,195 @@ void render_rtcpop(volatile uint8_t *frame) {
   draw_central_text("⯆", frame, cox[spop.rtcpop.selector], 84);
 }
 
-void render_settings(volatile uint8_t *frame) {
-  char tmp[128];
-  draw_box_outline(frame, 2, 240-2, 18, 158, FG_COLOR);
-  unsigned baseopt = smenu.set.selector <= 2  ? 0 :
-                     smenu.set.selector >= SettMAX - 3 ? SettMAX - 5 :
-                     smenu.set.selector - 2;
-
-  if (smenu.set.selector > 2)
-    draw_central_text("⯅", frame, 120, 19);
-  if (smenu.set.selector < SettSave - 2)
-    draw_central_text("⯆", frame, 120, 125);
-
-  const unsigned maxrows = 5;
-  unsigned optnum = 0, optcnt = 0;
-  const unsigned colx = 170;           // Center point for the selection boxes
-  const unsigned offy = 29;
-  const unsigned rowh = 20;
-
-  if (optnum++ >= baseopt && optcnt < maxrows)
-    draw_central_text(msgs[lang_id][MSG_SET_TITL1], frame, SCREEN_WIDTH/2, offy + rowh*optcnt++);
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    npf_snprintf(tmp, sizeof(tmp), "< %s >", hotkey_list[hotkey_combo].cname);
-    draw_text_ovf(msgs[lang_id][MSG_SETT_HOTK], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_SETT_BOOT], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][MSG_BOOT_TYPE0 + boot_bios_splash], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_SETT_FASTSD], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][use_slowld ? MSG_KNOB_DISABLED : MSG_KNOB_ENABLED], frame, colx, offy + rowh*optcnt++);
-  }
-
+// Fills the texts of a row of the settings window.
+// Returns 0 for a regular row, 1 for a section title, 2 for the save button.
+static int settings_row(unsigned idx, const char **label, const char **value, char *vb, unsigned vbsz) {
+  *value = NULL;
+  *label = "";
+  switch (idx) {
+  case SettTitle1:
+    *label = msgs[lang_id][MSG_SET_TITL1];
+    return 1;
+  case SettTitle2:
+    *label = msgs[lang_id][MSG_SET_TITL2];
+    return 1;
+  case SettSave:
+    *label = msgs[lang_id][MSG_UIS_SAVE];
+    return 2;
+  case SettHotkey:
+    *label = msgs[lang_id][MSG_SETT_HOTK];
+    npf_snprintf(vb, vbsz, "< %s >", hotkey_list[hotkey_combo].cname);
+    *value = vb;
+    break;
+  case SettBootType:
+    *label = msgs[lang_id][MSG_SETT_BOOT];
+    *value = msgs[lang_id][MSG_BOOT_TYPE0 + boot_bios_splash];
+    break;
+  case SettFastSD:
+    *label = msgs[lang_id][MSG_SETT_FASTSD];
+    *value = msgs[lang_id][use_slowld ? MSG_KNOB_DISABLED : MSG_KNOB_ENABLED];
+    break;
   #ifdef SUPPORT_NORGAMES
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_SETT_VERNOR], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][use_verify_nor ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED], frame, colx, offy + rowh*optcnt++);
-  }
+  case SettVerifyNOR:
+    *label = msgs[lang_id][MSG_SETT_VERNOR];
+    *value = msgs[lang_id][use_verify_nor ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED];
+    break;
   #endif
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_SETT_FASTEW], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][use_fastew ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_SETT_SAVET], frame, 8, offy + rowh*optcnt, 224);
-
+  case SettFastEWRAM:
+    *label = msgs[lang_id][MSG_SETT_FASTEW];
+    *value = msgs[lang_id][use_fastew ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED];
+    break;
+  case SettSaveLoc:
+    *label = msgs[lang_id][MSG_SETT_SAVET];
     if (save_path_default == SaveRomName)
-      draw_central_text(msgs[lang_id][MSG_NEXTTO_ROM], frame, colx, offy + rowh*optcnt++);
+      *value = msgs[lang_id][MSG_NEXTTO_ROM];
     else {
-      npf_snprintf(tmp, sizeof(tmp), "< %s >", save_paths[save_path_default]);
-      draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
+      npf_snprintf(vb, vbsz, "< %s >", save_paths[save_path_default]);
+      *value = vb;
     }
-  }
-
+    break;
   #ifdef SUPPORT_NORGAMES
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_SETT_SAVETX], frame, 8, offy + rowh*optcnt, 224);
-    npf_snprintf(tmp, sizeof(tmp), "< %s >", save_paths[save_path_nor_default]);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
-  }
+  case SettSaveLocNOR:
+    *label = msgs[lang_id][MSG_SETT_SAVETX];
+    npf_snprintf(vb, vbsz, "< %s >", save_paths[save_path_nor_default]);
+    *value = vb;
+    break;
   #endif
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    npf_snprintf(tmp, sizeof(tmp), "< %u >", backup_sram_default);
-    draw_text_ovf(msgs[lang_id][MSG_SETT_SAVEBK], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++ );
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_SETT_STATET], frame, 8, offy + rowh*optcnt, 224);
-    npf_snprintf(tmp, sizeof(tmp), "< %s >", savestates_paths_display[state_path_default]);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_SETT_CHTEN], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][enable_cheats ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows)
-    draw_central_text(msgs[lang_id][MSG_SET_TITL2], frame, SCREEN_WIDTH/2, offy + rowh*optcnt++);
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_DEFS_PATCH], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][MSG_PATCH_TYPE0 + patcher_default], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_LOADER_MENU], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][MSG_KNOB_DISABLED + ingamemenu_default], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_LOADER_RTCE], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][MSG_KNOB_DISABLED + rtcpatch_default], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
+  case SettSaveBkp:
+    *label = msgs[lang_id][MSG_SETT_SAVEBK];
+    npf_snprintf(vb, vbsz, "< %u >", backup_sram_default);
+    *value = vb;
+    break;
+  case SettStateLoc:
+    *label = msgs[lang_id][MSG_SETT_STATET];
+    npf_snprintf(vb, vbsz, "< %s >", savestates_paths_display[state_path_default]);
+    *value = vb;
+    break;
+  case SettCheatEn:
+    *label = msgs[lang_id][MSG_SETT_CHTEN];
+    *value = msgs[lang_id][enable_cheats ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED];
+    break;
+  case DefsPatchEng:
+    *label = msgs[lang_id][MSG_DEFS_PATCH];
+    *value = msgs[lang_id][MSG_PATCH_TYPE0 + patcher_default];
+    break;
+  case DefsGamMenu:
+    *label = msgs[lang_id][MSG_LOADER_MENU];
+    *value = msgs[lang_id][MSG_KNOB_DISABLED + ingamemenu_default];
+    break;
+  case DefsRTCEnb:
+    *label = msgs[lang_id][MSG_LOADER_RTCE];
+    *value = msgs[lang_id][MSG_KNOB_DISABLED + rtcpatch_default];
+    break;
+  case DefsRTCVal: {
     t_dec_date d;
     timestamp2date(rtcvalue_default, &d);
-    npf_snprintf(tmp, sizeof(tmp), "20%02d/%02d/%02d %02d:%02d",
-      d.year, d.month, d.day, d.hour, d.min);
-    draw_text_ovf(msgs[lang_id][MSG_DEF_RTCVAL], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
+    *label = msgs[lang_id][MSG_DEF_RTCVAL];
+    npf_snprintf(vb, vbsz, "20%02d/%02d/%02d %02d:%02d", d.year, d.month, d.day, d.hour, d.min);
+    *value = vb;
+    break;
   }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    unsigned spdmsg = rtcspeed_default ? (MSG_UIS_SPD0 + rtcspeed_default - 1) :
-                                          MSG_STILLRTC;
-    npf_snprintf(tmp, sizeof(tmp), "< %s >", msgs[lang_id][spdmsg]);
-    draw_text_ovf(msgs[lang_id][MSG_DEF_SPEED], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
+  case DefsRTCSpeed: {
+    unsigned spdmsg = rtcspeed_default ? (MSG_UIS_SPD0 + rtcspeed_default - 1) : MSG_STILLRTC;
+    *label = msgs[lang_id][MSG_DEF_SPEED];
+    npf_snprintf(vb, vbsz, "< %s >", msgs[lang_id][spdmsg]);
+    *value = vb;
+    break;
   }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_LOADER_LOADP], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][MSG_DEF_LOADP0 + (autoload_default ^ 1)], frame, colx, offy + rowh*optcnt++);
+  case DefsLoadPol:
+    *label = msgs[lang_id][MSG_LOADER_LOADP];
+    *value = msgs[lang_id][MSG_DEF_LOADP0 + (autoload_default ^ 1)];
+    break;
+  case DefsSavePol:
+    *label = msgs[lang_id][MSG_LOADER_SAVEP];
+    *value = msgs[lang_id][autosave_default ? MSG_DEF_SAVEP0 : MSG_DEF_SAVEP1];
+    break;
+  case DefsPrefDS:
+    *label = msgs[lang_id][MSG_LOADER_PREFDS];
+    *value = msgs[lang_id][autosave_prefer_ds ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED];
+    break;
+  case SettUiTheme:
+    *label = msgs[lang_id][MSG_UIS_THEME];
+    npf_snprintf(vb, vbsz, "< %u >", menu_theme + 1U);
+    *value = vb;
+    break;
+  case SettUiLang:
+    *label = msgs[lang_id][MSG_UIS_LANG];
+    npf_snprintf(vb, vbsz, "< %s >", msgs[lang_id][MSG_LANG_NAME]);
+    *value = vb;
+    break;
+  case SettUiASpd:
+    *label = msgs[lang_id][MSG_UIS_ANSPD];
+    npf_snprintf(vb, vbsz, "< %s >", msgs[lang_id][MSG_UIS_SPD0 + anim_speed]);
+    *value = vb;
+    break;
+  case SettUiHid:
+    *label = msgs[lang_id][MSG_UIS_BHID];
+    *value = msgs[lang_id][hide_hidden ? MSG_KNOB_DISABLED : MSG_KNOB_ENABLED];
+    break;
   }
+  return 0;
+}
 
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_LOADER_SAVEP], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][autosave_default ? MSG_DEF_SAVEP0 : MSG_DEF_SAVEP1], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_LOADER_PREFDS], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][autosave_prefer_ds ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    npf_snprintf(tmp, sizeof(tmp), "< %u >", menu_theme + 1U);
-    draw_text_ovf(msgs[lang_id][MSG_UIS_THEME], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    npf_snprintf(tmp, sizeof(tmp), "< %s >", msgs[lang_id][MSG_LANG_NAME]);
-    draw_text_ovf(msgs[lang_id][MSG_UIS_LANG], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    npf_snprintf(tmp, sizeof(tmp), "< %s >", msgs[lang_id][MSG_UIS_SPD0 + anim_speed]);
-    draw_text_ovf(msgs[lang_id][MSG_UIS_ANSPD], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(tmp, frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_text_ovf(msgs[lang_id][MSG_UIS_BHID], frame, 8, offy + rowh*optcnt, 224);
-    draw_central_text(msgs[lang_id][hide_hidden ? MSG_KNOB_DISABLED : MSG_KNOB_ENABLED], frame, colx, offy + rowh*optcnt++);
-  }
-
-  if (optnum++ >= baseopt && optcnt < maxrows) {
-    draw_button_box(frame, 20, 220, 112, 132, smenu.set.selector == SettSave);
-    draw_central_text(msgs[lang_id][MSG_UIS_SAVE], frame, 132, 114);
-  }
-
-  // Render bar below for help messge
-  dma_memset16(&frame[240*140], dup8(FG_COLOR), 240*20/2);
-
-  if (smenu.set.selector == SettSaveLoc) {
+// Help message for the currently selected setting.
+static const char *settings_help(char *tmp, unsigned tmpsz) {
+  const int sel = smenu.set.selector;
+  if (sel == SettSaveLoc) {
     if (save_path_default == SaveRomName)
-      draw_text_ovf_rotate(msgs[lang_id][MSG_SAVE_TYPE_NR], frame, 4, SCREEN_HEIGHT - 18, 232, &smenu.anim_state);
-    else {
-      npf_snprintf(tmp, sizeof(tmp), msgs[lang_id][MSG_SAVE_TYPE_PT], save_paths[save_path_default]);
-      draw_text_ovf_rotate(tmp, frame, 4, SCREEN_HEIGHT - 18, 232, &smenu.anim_state);
-    }
+      return msgs[lang_id][MSG_SAVE_TYPE_NR];
+    npf_snprintf(tmp, tmpsz, msgs[lang_id][MSG_SAVE_TYPE_PT], save_paths[save_path_default]);
+    return tmp;
   }
-  else if (smenu.set.selector == SettStateLoc) {
-    npf_snprintf(tmp, sizeof(tmp), msgs[lang_id][MSG_STATE_TYPE_PT], savestates_paths[state_path_default]);
-    draw_text_ovf_rotate(tmp, frame, 4, SCREEN_HEIGHT - 18, 232, &smenu.anim_state);
+  if (sel == SettStateLoc) {
+    npf_snprintf(tmp, tmpsz, msgs[lang_id][MSG_STATE_TYPE_PT], savestates_paths[state_path_default]);
+    return tmp;
   }
   #ifdef SUPPORT_NORGAMES
-  else if (smenu.set.selector == SettSaveLocNOR) {
-    npf_snprintf(tmp, sizeof(tmp), msgs[lang_id][MSG_SAVE_TYPE_PTX], save_paths[save_path_nor_default]);
-    draw_text_ovf_rotate(tmp, frame, 4, SCREEN_HEIGHT - 18, 232, &smenu.anim_state);
+  if (sel == SettSaveLocNOR) {
+    npf_snprintf(tmp, tmpsz, msgs[lang_id][MSG_SAVE_TYPE_PTX], save_paths[save_path_nor_default]);
+    return tmp;
   }
   #endif
-  else {
-    unsigned help_msg = smenu.set.selector == SettBootType ? MSG_BOOT_TYPE_I0 + boot_bios_splash :
-                        smenu.set.selector == SettSaveBkp  ? MSG_BACKUP_I :
-                        smenu.set.selector == SettFastSD   ? MSG_FASTSD_I :
-                        smenu.set.selector == SettFastEWRAM? MSG_FASTEW_I :
-                        smenu.set.selector == DefsPatchEng ? MSG_PATCH_TYPE_I0 + patcher_default :
-                        smenu.set.selector == DefsLoadPol  ? MSG_DEF_LOADP_I0 + (autoload_default ^ 1) :
-                        smenu.set.selector == DefsSavePol  ? MSG_DEF_SAVEP_I0 + (autosave_default ^ 1) :
-                        smenu.set.selector == DefsPrefDS   ? MSG_LOADER_PREFDSI :
-                        #ifdef SUPPORT_NORGAMES
-                        smenu.set.selector == SettVerifyNOR ? MSG_VERNOR_I :
-                        #endif
-                        MSG_EMPTY;
-    draw_text_ovf_rotate(msgs[lang_id][help_msg], frame, 4, SCREEN_HEIGHT - 18, 232, &smenu.anim_state);
-  }
+  unsigned help_msg = sel == SettBootType ? MSG_BOOT_TYPE_I0 + boot_bios_splash :
+                      sel == SettSaveBkp  ? MSG_BACKUP_I :
+                      sel == SettFastSD   ? MSG_FASTSD_I :
+                      sel == SettFastEWRAM? MSG_FASTEW_I :
+                      sel == DefsPatchEng ? MSG_PATCH_TYPE_I0 + patcher_default :
+                      sel == DefsLoadPol  ? MSG_DEF_LOADP_I0 + (autoload_default ^ 1) :
+                      sel == DefsSavePol  ? MSG_DEF_SAVEP_I0 + (autosave_default ^ 1) :
+                      sel == DefsPrefDS   ? MSG_LOADER_PREFDSI :
+                      #ifdef SUPPORT_NORGAMES
+                      sel == SettVerifyNOR ? MSG_VERNOR_I :
+                      #endif
+                      MSG_EMPTY;
+  return msgs[lang_id][help_msg];
+}
 
-  if (smenu.set.selector != SettSave)
-    for (unsigned i = 0; i < 240; i += 16)
-      render_icon_trans(i, offy + (smenu.set.selector - baseopt) * 20, 63);
+void render_settings(volatile uint8_t *frame) {
+  draw_corner_window(frame, CW_LEFT, CW_TOP);
+
+  const int sel = smenu.set.selector;
+  const int base = cw_base(sel, SettMAX);
+  for (int i = 0; i < CW_ROWS && base + i < SettMAX; i++) {
+    const unsigned y = CW_ROW0Y + i * CW_ROWH;
+    const char *label, *value;
+    char vb[48];
+    const int kind = settings_row(base + i, &label, &value, vb, sizeof(vb));
+    if (kind == 0)
+      cw_row(frame, CW_LEFT, CW_ROWW, y, base + i == sel, label, value);
+    else {
+      // Section titles and the save button are centered "bars".
+      fill_rect(frame, CW_LEFT + 2, y, CW_ROWW, CW_ROWH - 2, (kind == 2 && base + i == sel) ? HI_COLOR : FG_COLOR);
+      draw_central_text(label, frame, CW_LEFT + 2 + CW_ROWW / 2, y + 1);
+    }
+  }
+  cw_scrollbar(frame, base, SettMAX);
+
+  // Help bar at the bottom of the window
+  char tmp[128];
+  fill_rect(frame, CW_LEFT + 2, CW_HELPY, CW_RIGHT - CW_LEFT - 4, 16, FG_COLOR);
+  draw_text_ovf_rotate(settings_help(tmp, sizeof(tmp)), frame, CW_LEFT + 6, CW_HELPY,
+                       CW_RIGHT - CW_LEFT - 12, &smenu.anim_state);
 }
 
 void render_info(volatile uint8_t *frame) {
@@ -2023,70 +2075,71 @@ void render_info(volatile uint8_t *frame) {
   uint32_t vmin = VERSION_WORD & 0xFFFF;
   uint32_t gitver = VERSION_SLUG_WORD;
   char tmp[64], tmp2[32];
+  const unsigned maxw = CW_RIGHT - CW_LEFT - 16;
 
+  draw_corner_window(frame, CW_LEFT, CW_TOP);
   init_logo_palette(&MEM_PALETTE[1]);
-  render_logo((uint16_t*)frame, SCREEN_WIDTH/2, 40, 4);
+  render_logo((uint16_t*)frame, CW_CX, 54, 4);
 
   switch (smenu.info.selector) {
   case 0:
-    draw_central_text("by davidgf", frame, 120, 70);
-    npf_snprintf(tmp, sizeof(tmp), "Version %lu.%lu (%08lx)", vmaj, vmin, gitver);
-    draw_central_text(tmp, frame, 120, 95);
-    draw_central_text(FW_FLAVOUR " variant", frame, 120, 114);
+    draw_central_text("by davidgf", frame, CW_CX, 70);
+    npf_snprintf(tmp, sizeof(tmp), "Version %lu.%lu.%u", vmaj, vmin, (unsigned)CUSTOM_VERSION);
+    draw_central_text_ovf(tmp, frame, CW_CX, 88, maxw);
+    draw_central_text(FW_FLAVOUR " variant", frame, CW_CX, 106);
+    npf_snprintf(tmp, sizeof(tmp), "(%08lx)", gitver);
+    draw_central_text(tmp, frame, CW_CX, 122);
     break;
   case 1:
-    draw_central_text("Flash info", frame, 120, 70);
+    draw_central_text("Flash info", frame, CW_CX, 72);
     npf_snprintf(tmp, sizeof(tmp), "Dev ID: %08lx", flashinfo.deviceid);
-    draw_central_text(tmp, frame, 120, 95);
+    draw_central_text_ovf(tmp, frame, CW_CX, 92, maxw);
     if (flashinfo.size && flashinfo.blksize && flashinfo.blkcount) {
       human_size_kb(tmp2, sizeof(tmp2), flashinfo.size >> 10);
       npf_snprintf(tmp, sizeof(tmp), "%s [%lu * %lu]", tmp2, flashinfo.blksize, flashinfo.blkcount);
       if (flashinfo.regioncnt != 1)
         strcat(tmp, " !");
-      draw_central_text(tmp, frame, 120, 115);
     } else {
       npf_snprintf(tmp, sizeof(tmp), "No CFI! (hardwired %dKiB)", FW_MAX_SIZE_KB);
-      draw_central_text(tmp, frame, 120, 115);
     }
+    draw_central_text_ovf(tmp, frame, CW_CX, 112, maxw);
     break;
   case 2:
-    draw_central_text(msgs[lang_id][MSG_DBPINFO], frame, 120, 70);
+    draw_central_text_ovf(msgs[lang_id][MSG_DBPINFO], frame, CW_CX, 72, maxw);
     npf_snprintf(tmp, sizeof(tmp), "%s - %s", pdbinfo.version, pdbinfo.date);
-    draw_central_text(tmp, frame, 120, 90);
+    draw_central_text_ovf(tmp, frame, CW_CX, 92, maxw);
     npf_snprintf(tmp, sizeof(tmp), "Game count: %lu", pdbinfo.patch_count);
-    draw_central_text(tmp, frame, 120, 110);
+    draw_central_text_ovf(tmp, frame, CW_CX, 112, maxw);
     break;
   case 3:
     npf_snprintf(tmp, sizeof(tmp), "SD Card ID: %02x | %04x", sd_info.manufacturer, sd_info.oemid);
-    draw_central_text(tmp, frame, 120, 70);
+    draw_central_text_ovf(tmp, frame, CW_CX, 72, maxw);
     human_size_kb(tmp2, sizeof(tmp2), sd_info.block_cnt / 2);
     npf_snprintf(tmp, sizeof(tmp), "Type: %s  Size: %s", sd_info.sdhc ? "SDHC" : "SDSC", tmp2);
-    draw_central_text(tmp, frame, 120, 90);
+    draw_central_text_ovf(tmp, frame, CW_CX, 92, maxw);
     npf_snprintf(tmp, sizeof(tmp), "Info: %c%c%c%c%c (%d/%d)",
       sd_info.prodname[0] ?: '#', sd_info.prodname[1] ?: '#',
       sd_info.prodname[2] ?: '#', sd_info.prodname[3] ?: '#',
       sd_info.prodname[4] ?: '#', 2000 + sd_info.year, sd_info.month);
-    draw_central_text(tmp, frame, 120, 110);
+    draw_central_text_ovf(tmp, frame, CW_CX, 112, maxw);
     break;
   }
 
-  // Flashing info
-  dma_memset16(&frame[138*SCREEN_WIDTH], dup8(FG_COLOR), SCREEN_WIDTH*22/2);
+  // Flashing info bar at the bottom of the window
+  fill_rect(frame, CW_LEFT + 2, CW_HELPY, CW_RIGHT - CW_LEFT - 4, 16, FG_COLOR);
   draw_text_ovf_rotate(enable_flashing ? msgs[lang_id][MSG_FWUP_ENABLED] : msgs[lang_id][MSG_FWUP_HOTKEY], frame,
-                       4, 141, SCREEN_WIDTH - 8, &smenu.anim_state);
-  draw_box_outline(frame, 2, 240-2, 18, 158, FG_COLOR);
+                       CW_LEFT + 6, CW_HELPY, CW_RIGHT - CW_LEFT - 12, &smenu.anim_state);
 }
 
 void render_tools(volatile uint8_t *frame) {
-  draw_box_outline(frame, 2, 240-2, 18, 158, FG_COLOR);
-  for (unsigned i = 0; i < ToolsMAX; i++)
-    draw_text_ovf(msgs[lang_id][MSG_TOOLS0_SDRAM + i], frame, 22, 26 + 22 * i, 144);
+  draw_corner_window(frame, CW_LEFT, CW_TOP);
 
-  smenu.anim_state = (smenu.anim_state + 1) & 255;
-  draw_central_text("▸", frame, 11 + (smenu.anim_state >> 6), 26 + 22 * smenu.tools.selector);
-
-  for (unsigned i = 8; i < 232; i += 16)
-    render_icon_trans(i, 26 + smenu.tools.selector * 22, 63);
+  const int sel = smenu.tools.selector;
+  const int base = cw_base(sel, ToolsMAX);
+  for (int i = 0; i < CW_ROWS && base + i < (int)ToolsMAX; i++)
+    cw_row(frame, CW_LEFT, CW_ROWW, CW_ROW0Y + i * CW_ROWH, base + i == sel,
+           msgs[lang_id][MSG_TOOLS0_SDRAM + base + i], NULL);
+  cw_scrollbar(frame, base, ToolsMAX);
 }
 
 // Tabs that L/R cycle through. Settings, tools and info live in the START menu.
@@ -2099,19 +2152,42 @@ static const uint8_t game_tabs[] = {
 };
 #define game_tab_cnt (sizeof(game_tabs) / sizeof(game_tabs[0]))
 
-// System menu (opened with START): three icons, settings / tools / info.
-static const uint8_t sysmenu_tabs[3] = { MENUTAB_SETTINGS, MENUTAB_TOOLS, MENUTAB_INFO };
+static const uint16_t game_tab_names[] = {
+  MSG_TAB_RECENT,
+  MSG_TAB_BROWSE,
+  #ifdef SUPPORT_NORGAMES
+  MSG_TAB_NOR,
+  #endif
+};
 
-void render_sysmenu_popup(volatile uint8_t *frame) {
-  draw_box_full(frame, 60, 180, 52, 108, FG_COLOR, BG_COLOR);
-  for (unsigned i = 0; i < 3; i++) {
-    const unsigned x = 72 + i * 32;
-    draw_button_box(frame, x - 4, x + 20, 62, 90, i == (unsigned)spop.selector);
-    if (i == (unsigned)spop.selector)
-      render_icon(x, 68, sysmenu_tabs[i] + ICON_RECENT);
-    else
-      render_icon_trans(x, 68, sysmenu_tabs[i] + ICON_RECENT);
+// Text tabs on the top bar, the current one is highlighted.
+static void render_tabbar(volatile uint8_t *frame) {
+  unsigned x = 4;
+  for (unsigned i = 0; i < game_tab_cnt; i++) {
+    const char *t = msgs[lang_id][game_tab_names[i]];
+    const unsigned tw = (font_width(t) + 8 + 1) & ~1U;
+    if (game_tabs[i] == smenu.menu_tab)
+      fill_rect(frame, x, 0, tw, 16, HI_COLOR);
+    draw_text_ovf(t, frame, x + 4, 0, tw - 4);
+    x += tw + 2;
   }
+}
+
+// START hint at the bottom right corner of the main pages.
+static void render_start_hint(volatile uint8_t *frame) {
+  draw_rightj_text(msgs[lang_id][MSG_START_HINT], frame, SCREEN_WIDTH - 6, 144);
+}
+
+// START menu: small window with the system entries, anchored to the bottom right corner.
+void render_sysmenu_popup(volatile uint8_t *frame) {
+  const char * const names[3] = {
+    msgs[lang_id][MSG_SYS_SETTINGS],
+    msgs[lang_id][MSG_SYS_TOOLS],
+    msgs[lang_id][MSG_SYS_INFO],
+  };
+  draw_corner_window(frame, SM_LEFT, SM_TOP);
+  for (unsigned i = 0; i < 3; i++)
+    cw_row(frame, SM_LEFT, SM_ROWW, SM_TOP + 4 + i * CW_ROWH, i == (unsigned)spop.selector, names[i], NULL);
 }
 
 void reload_theme(unsigned thnum) {
@@ -2134,6 +2210,8 @@ void reload_theme(unsigned thnum) {
 static const struct {
   const t_mrender_fn render;
   const int max_submenu;
+  const uint8_t cleft;          // Corner window: left edge (0 = full screen pop-up)
+  const uint8_t ctop;           // Corner window: top edge
 } popup_windows[] = {
   { render_gba_load_popup, GbaLoadCNT },
   { render_sav_menu_popup, 1 },
@@ -2143,10 +2221,10 @@ static const struct {
   { render_gba_norwrite,   GbaNorWrCNT },
   { render_gba_norload,    GbaNorLoadCNT },
   #endif
-  { render_sysmenu_popup,  1 },
-  { render_settings,       1 },
-  { render_tools,          1 },
-  { render_info,           1 },
+  { render_sysmenu_popup,  1, SM_LEFT, SM_TOP },
+  { render_settings,       1, CW_LEFT, CW_TOP },
+  { render_tools,          1, CW_LEFT, CW_TOP },
+  { render_info,           1, CW_LEFT, CW_TOP },
 };
 
 // Renders the menu. Arg0 represents the frame count difference with the
@@ -2158,12 +2236,8 @@ void menu_render(unsigned fcnt) {
   // Render the tab menu on top (rows 0..15), highlighting the selected option
   dma_memset16(&frame[0], dup8(FG_COLOR), SCREEN_WIDTH*16/2);
 
-  // Render icon bar
-  for (unsigned i = 0; i < game_tab_cnt; i++)
-    if (game_tabs[i] == smenu.menu_tab)
-      render_icon(i*16, 0, game_tabs[i] + ICON_RECENT);
-    else
-      render_icon_trans(i*16, 0, game_tabs[i] + ICON_RECENT);
+  // Render the text tabs
+  render_tabbar(frame);
 
   // Render the main area
   dma_memset16(&frame[16*SCREEN_WIDTH], dup8(BG_COLOR), SCREEN_WIDTH*(SCREEN_HEIGHT-16) / 2);
@@ -2173,7 +2247,8 @@ void menu_render(unsigned fcnt) {
   else if (spop.rtcpop.callback)
     render_rtcpop(frame);
   else {
-    if (spop.pop_num) {
+    const bool corner = spop.pop_num && popup_windows[spop.pop_num - 1].cleft;
+    if (spop.pop_num && !corner) {
       popup_windows[spop.pop_num - 1].render(frame);
       spop.anim += fcnt * animspd_lut[anim_speed];
     } else {
@@ -2186,7 +2261,23 @@ void menu_render(unsigned fcnt) {
       };
       renderfns[smenu.menu_tab](frame);
       smenu.anim_state += fcnt * animspd_lut[anim_speed];
+      render_start_hint(frame);
+
+      // The START menu family is drawn as a window on top of the current page
+      if (corner) {
+        popup_windows[spop.pop_num - 1].render(frame);
+        spop.anim += fcnt * animspd_lut[anim_speed];
+      }
     }
+  }
+
+  // Window 1 hides the page sprites (selection bars, icons) behind the corner window.
+  if (spop.pop_num && popup_windows[spop.pop_num - 1].cleft && !spop.qpop.message && !spop.rtcpop.callback) {
+    REG_WIN1H = CW_RIGHT | (popup_windows[spop.pop_num - 1].cleft << 8);
+    REG_WIN1V = CW_BOTTOM | (popup_windows[spop.pop_num - 1].ctop << 8);
+  } else {
+    REG_WIN1H = 0;
+    REG_WIN1V = 0;
   }
 
   // Render popup window. Use windowing to ensure the pop up is not covered by OBJs.
@@ -2236,11 +2327,13 @@ void menu_init(int sram_testres) {
   dma_memset16(&MEM_VRAM_OBJS[63 * 256], dup8(SEL_COLOR), 256 / 2);
 
   // Further setup initial video regs. BG2 is setup in the bootloader already!
-  REG_WININ  = 0x0004;     // Only BG2 is enabled in Win0
+  REG_WININ  = 0x0404;     // Only BG2 is enabled in Win0 and Win1
   REG_WINOUT = 0x0014;     // BG2 and OBJ enabled outside of Win0
   REG_WIN0H = 0;
   REG_WIN0V = 0;
-  REG_DISPCNT |= 0x2000;   // Enable window 0
+  REG_WIN1H = 0;
+  REG_WIN1V = 0;
+  REG_DISPCNT |= 0x6000;   // Enable windows 0 and 1
 
   // Setup alpha blending for the selector knob
   REG_BLDCNT = 0x1F40;
@@ -3270,9 +3363,9 @@ static void keypress_menu_info(unsigned newkeys) {
 
 
 static void keypress_popup_sysmenu(unsigned newkeys) {
-  if (newkeys & (KEY_BUTTLEFT | KEY_BUTTUP))
+  if (newkeys & KEY_BUTTUP)
     spop.selector = MAX(0, spop.selector - 1);
-  if (newkeys & (KEY_BUTTRIGHT | KEY_BUTTDOWN))
+  if (newkeys & KEY_BUTTDOWN)
     spop.selector = MIN(2, spop.selector + 1);
 
   if (newkeys & KEY_BUTTSTA)

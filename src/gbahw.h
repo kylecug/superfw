@@ -72,6 +72,8 @@
 #define REG_BG2PD        (*((volatile uint16_t *) 0x04000026))
 #define REG_WIN0H        (*((volatile uint16_t *) 0x04000040))
 #define REG_WIN0V        (*((volatile uint16_t *) 0x04000044))
+#define REG_WIN1H        (*((volatile uint16_t *) 0x04000042))
+#define REG_WIN1V        (*((volatile uint16_t *) 0x04000046))
 #define REG_WININ        (*((volatile uint16_t *) 0x04000048))
 #define REG_WINOUT       (*((volatile uint16_t *) 0x0400004A))
 

@@ -26,6 +26,13 @@ en_strings = [
   "MSG_LANG_NAME": "English",
 
   "MSG_EMPTY": "",
+  "MSG_TAB_RECENT": "Recent",
+  "MSG_TAB_BROWSE": "Browse",
+  "MSG_TAB_NOR": "NOR",
+  "MSG_START_HINT": "START/Menu",
+  "MSG_SYS_SETTINGS": "Settings",
+  "MSG_SYS_TOOLS": "Tools",
+  "MSG_SYS_INFO": "Info",
   "MSG_KNOB_ENABLED": "< Enabled >",
   "MSG_KNOB_DISABLED": "< Disabled >",
 

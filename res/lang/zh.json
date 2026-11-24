@@ -224,5 +224,12 @@
     "MSG_SETT_SAVETX": "NOR游戏存档路径",
     "MSG_SAVE_TYPE_PTX": "Save file lives (for in-flash games) in %s dir",
     "MSG_SETT_VERNOR": "校验写入内容",
-    "MSG_VERNOR_I": "Checks ROMs written to flash"
+    "MSG_VERNOR_I": "Checks ROMs written to flash",
+    "MSG_TAB_RECENT": "最近",
+    "MSG_TAB_BROWSE": "浏览",
+    "MSG_TAB_NOR": "NOR",
+    "MSG_START_HINT": "START/系统",
+    "MSG_SYS_SETTINGS": "设置",
+    "MSG_SYS_TOOLS": "工具",
+    "MSG_SYS_INFO": "信息"
 }
