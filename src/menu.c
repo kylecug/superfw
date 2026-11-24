@@ -736,35 +736,93 @@ static bool prepare_gba_info(
   return true;
 }
 
+static inline char cht_up(char c) { return (c >= 'a' && c <= 'z') ? c - 32 : c; }
+static bool cht_ext_ok(const char *e) {
+  return e[0] == '.' && cht_up(e[1]) == 'C' && cht_up(e[2]) == 'H' && cht_up(e[3]) == 'T';
+}
+
+// Searches the cheat folder for the best match for a game code and version.
+// Accepted names are XXXX-VV.cht or XXXX.cht. Match quality (higher is better):
+//  3: same game code and version, 2: same game code (any version),
+//  1: same first 3 chars of the code (different language/region letter, ie. fan translations).
+static bool find_cheat_file(const char *gcode, uint8_t ver, char *out, unsigned outsz) {
+  DIR d;
+  if (FR_OK != f_opendir(&d, CHEATS_PATH))
+    return false;
+
+  int best = 0;
+  while (1) {
+    FILINFO info;
+    if (f_readdir(&d, &info) != FR_OK || !info.fname[0])
+      break;
+    if (info.fattrib & AM_DIR)
+      continue;
+
+    const char *n = info.fname;
+    unsigned len = strlen(n);
+    // Only accept XXXX.cht or XXXX-VV.cht
+    bool hasver = (len == 4 + 1 + 2 + 4 && n[4] == '-');
+    if ((len != 4 + 4 && !hasver) || !cht_ext_ok(&n[len - 4]))
+      continue;
+
+    unsigned same = 0;
+    while (same < 4 && cht_up(n[same]) == cht_up(gcode[same]))
+      same++;
+    if (same < 3)
+      continue;
+
+    int score = 1;
+    if (same == 4) {
+      score = 2;
+      if (hasver) {
+        char vs[3];
+        npf_snprintf(vs, sizeof(vs), "%02x", ver);
+        if (cht_up(n[5]) == cht_up(vs[0]) && cht_up(n[6]) == cht_up(vs[1]))
+          score = 3;
+      }
+    }
+
+    if (score > best) {
+      best = score;
+      npf_snprintf(out, outsz, CHEATS_PATH "%s", n);
+      if (best == 3)
+        break;
+    }
+  }
+  f_closedir(&d);
+  return best > 0;
+}
+
 static void prepare_gba_cheats(const char *gcode, uint8_t ver, t_load_gba_lcfg *data, const char *fn, bool prefer_cheats) {
   // Attempt to find a cheat file if cheats are enabled.
   data->cheats_size = 0;
   data->cheats_found = false;
   if (enable_cheats) {
+    // First try a cheat file next to the ROM, with the same name.
     strcpy(data->cheatsfn, fn);
     replace_extension(data->cheatsfn, ".cht");
     data->cheats_found = check_file_exists(data->cheatsfn);
     if (!data->cheats_found) {
       WRITE_LOG("No cheat file found at '%s'", data->cheatsfn);
-      // Create a path using the game ID and version.
-      npf_snprintf(data->cheatsfn, sizeof(data->cheatsfn), CHEATS_PATH "%c%c%c%c-%02x.cht",
-                   gcode[0], gcode[1], gcode[2], gcode[3], ver);
-      data->cheats_found = check_file_exists(data->cheatsfn);
-      WRITE_LOG("No cheat file found at '%s'", data->cheatsfn);
+      // Search the cheat database by game ID (and version), falling back to looser matches.
+      data->cheats_found = find_cheat_file(gcode, ver, data->cheatsfn, sizeof(data->cheatsfn));
+      if (!data->cheats_found)
+        WRITE_LOG("No cheat file found for %c%c%c%c-%02x", gcode[0], gcode[1], gcode[2], gcode[3], ver);
+    }
 
-      // Load the cheats into memory if enabled.
-      if (data->cheats_found) {
-        // Load the cheats to the ROM area, just after the font pack. This is for easier relocation.
-        uint8_t *cheat_area = (uint8_t*)(ROM_FONTBASE_U8 + font_block_size());
-        unsigned max_area = 1536*1024 - font_block_size();    // 1.5MB is reserved at the end.
-        int cheatsz = open_read_cheats(cheat_area, max_area, data->cheatsfn);
-        if (cheatsz < 0)
-          data->cheats_found = false;
-        else
-          data->cheats_size = cheatsz;
+    // Load the cheats into memory if found.
+    if (data->cheats_found) {
+      WRITE_LOG("Using cheat file '%s'", data->cheatsfn);
+      // Load the cheats to the ROM area, just after the font pack. This is for easier relocation.
+      uint8_t *cheat_area = (uint8_t*)(ROM_FONTBASE_U8 + font_block_size());
+      unsigned max_area = 1536*1024 - font_block_size();    // 1.5MB is reserved at the end.
+      int cheatsz = open_read_cheats(cheat_area, max_area, data->cheatsfn);
+      if (cheatsz < 0)
+        data->cheats_found = false;
+      else
+        data->cheats_size = cheatsz;
 
-        WRITE_LOG("Loaded cheats returned %d", cheatsz);
-      }
+      WRITE_LOG("Loaded cheats returned %d", cheatsz);
     }
   }
   data->use_cheats = enable_cheats && data->cheats_found && prefer_cheats;
