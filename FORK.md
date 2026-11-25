@@ -49,19 +49,24 @@
   python tools/acl2cht.py gba.acl 输出目录
   ```
 
-  把输出目录里的文件复制到 SD 卡的 `/.superfw/cheats/` 即可。注意：
+  把输出目录里的文件复制到 SD 卡的 `/.superfw/cheats/` 即可。**转换好的结果已经放在 Release 里**
+  （`superfw-cheats-zh-v0.22.1.zip`，2477 个文件，直接解压到 SD 卡根目录），不需要自己转换。注意：
   - 一个选项码数超过一行上限（36 条）时会拆成多行，需要逐行开启。
   - 同一个游戏代码有多套（对应不同汉化版本）时，第一套保存为 `XXXY.cht`，其余保存为 `XXXY~2.cht`
     等不会被自动载入的名字，需要时自己改名。
-  - **转换出来的金手指文件没有包含在发布包里**，原数据来自第三方整理的合集，请自行转换使用。
+  - 这些金手指的数据来自 open_agb_firm 项目自带的金手指合集（原作者及整理者见该项目），本分支只做了格式转换，
+    权利归原作者所有。如有异议请联系我删除。
 - 官方金手指库：[davidgfnet/superfw-cheats](https://github.com/davidgfnet/superfw-cheats)（约 140 个游戏，不含汉化版）。
+  它没有声明授权，所以没有放进本分支的发布包，需要的话请到它的 Releases 页面自行下载，和汉化金手指放在同一个目录即可，文件名不会冲突。
 - 使用金手指需要在设置里打开"游戏内菜单"和"金手指"。
 
 ## 安装
 
 > 先阅读上游文档：<https://superfw.davidgf.net/docs/install/flash/>
 
-1. 从 [Releases](../../releases) 下载 `superfw-chis.fw`，复制到 SD 卡。
+1. 从 [Releases](../../releases) 下载。最省事的是 `superfw-chis-sd-files-v0.22.1.zip`：里面是 `superfw-chis.fw` 和
+   `.superfw/cheats/` 下的汉化金手指，直接解压到 SD 卡根目录。只想要固件的话单独下载 `superfw-chis.fw`；
+   已经装了金手指、只想补充汉化金手指的话下载 `superfw-cheats-zh-v0.22.1.zip`。
 2. **先用链式加载试用（推荐）**：把文件复制一份并改名为 `.gba`（例如 `superfw-chis-test.gba`），
    在已装的 SuperFW（或默认固件 / SCFW）的文件浏览器里像普通游戏一样运行。不会改动任何东西，重启就回到原来的固件。
 3. 确认好用后再刷写：在"信息"窗口里同时按住 **下 + B + START** 解锁刷写（当次开机有效），
