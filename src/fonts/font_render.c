@@ -30,6 +30,7 @@ extern void *font_base_addr;
 // Memory structures that describe character/font data.
 
 #define FLAG_FW16     0x00000001
+#define FLAG_FW12     0x00000002
 #define FLAG_COMP     0x80000000
 
 typedef struct {
@@ -92,6 +93,11 @@ static bool lookup_chptr(uint32_t code, t_char_render_info *chinfo) {
           chinfo->spacing_cols = 0;   // No spacing for fixed width chars.
           chinfo->nchars = 1;
           chinfo->data[0] = &chptr[16 * code_offset];
+        } else if (chdat->charblks[i].flags & FLAG_FW12) {
+          chinfo->char_width = 12;
+          chinfo->spacing_cols = 0;   // The glyphs already include their own spacing.
+          chinfo->nchars = 1;
+          chinfo->data[0] = &chptr[12 * code_offset];
         } else {
           // Lookup the second index (contains widths and offsets)
           uint16_t ientry = chptr[code_offset];

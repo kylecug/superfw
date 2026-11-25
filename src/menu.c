@@ -1388,11 +1388,11 @@ static void draw_central_text_wrapped(const char *t, volatile uint8_t *frame, un
 // The pop-ups opened from the START menu are windows anchored to the bottom
 // right corner of the 240x160 screen. All x coordinates/widths are even since
 // we fill the frame buffer 16 bits at a time.
-#define CW_LEFT     56                          // Big window (settings, tools, info)
+#define CW_LEFT     48                          // Big window (settings, tools, info)
 #define CW_RIGHT    238
 #define CW_TOP      34
 #define CW_BOTTOM   158
-#define CW_CX       146                         // Horizontal center of the big window
+#define CW_CX       144                         // Horizontal center of the big window (logo needs it even)
 #define SM_LEFT     142                         // Small window (START menu)
 #define SM_TOP      90
 #define CW_ROWH     20
@@ -1424,7 +1424,7 @@ static void cw_row(volatile uint8_t *frame, unsigned left, unsigned width, unsig
   fill_rect(frame, left + 2, y, width, CW_ROWH - 2, sel ? HI_COLOR : BG_COLOR);
   const unsigned tx = left + 6;
   const unsigned xr = left + 2 + width - 4;
-  const unsigned vw = value ? MIN(font_width(value), 92U) : 0;
+  const unsigned vw = value ? MIN(font_width(value), 104U) : 0;
   const unsigned lw = xr - tx - (vw ? vw + 4 : 0);
   draw_text_ovf(label, frame, tx, y + 1, lw);
   if (value)
@@ -1517,7 +1517,7 @@ void render_flashbrowser(volatile uint8_t *frame) {
 
   human_size(tmp1, sizeof(tmp1), smenu.fbrowser.usedblks * NOR_BLOCK_SIZE);
   human_size(tmp2, sizeof(tmp2), NOR_GAMEBLOCK_COUNT * NOR_BLOCK_SIZE);
-  npf_snprintf(tmp, sizeof(tmp), "Flash usage: %s/%s", tmp1, tmp2);
+  npf_snprintf(tmp, sizeof(tmp), "NOR %s/%s", tmp1, tmp2);
   draw_text_ovf(tmp, frame, 8, 144, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
 }
 #endif
@@ -1963,7 +1963,7 @@ static int settings_row(unsigned idx, const char **label, const char **value, ch
     t_dec_date d;
     timestamp2date(rtcvalue_default, &d);
     *label = msgs[lang_id][MSG_DEF_RTCVAL];
-    npf_snprintf(vb, vbsz, "20%02d/%02d/%02d %02d:%02d", d.year, d.month, d.day, d.hour, d.min);
+    npf_snprintf(vb, vbsz, "%02d/%02d/%02d %02d:%02d", d.year, d.month, d.day, d.hour, d.min);
     *value = vb;
     break;
   }
@@ -2100,7 +2100,7 @@ void render_info(volatile uint8_t *frame) {
       if (flashinfo.regioncnt != 1)
         strcat(tmp, " !");
     } else {
-      npf_snprintf(tmp, sizeof(tmp), "No CFI! (hardwired %dKiB)", FW_MAX_SIZE_KB);
+      npf_snprintf(tmp, sizeof(tmp), "No CFI (fixed %dKiB)", FW_MAX_SIZE_KB);
     }
     draw_central_text_ovf(tmp, frame, CW_CX, 112, maxw);
     break;

@@ -34,6 +34,7 @@
 #  int32: end character unicode point
 #  int32: flags
 #      bit0: set if font is 16pixel fixed width, 0 if it's variable
+#      bit1: set if font is 12pixel fixed width (12 columns per char)
 #      bit31: requires multi-char composition (for now only hangul supported)
 #  int32: offset (bytes, after the index)
 #
@@ -55,6 +56,7 @@ SPACE_PIXELS = 4    # Must be at least 1!
 
 parser = argparse.ArgumentParser(prog='efontgen')
 parser.add_argument('--font-files', dest='fontfiles', nargs='+', help='List of font files, order matters')
+parser.add_argument('--font-files-12', dest='fontfiles12', nargs='*', default=[], help='Font files for the 12 pixel wide blocks (rows are 12 bit values)')
 parser.add_argument('--font-blocks', dest='blocks', type=str, default=DEF_BLOCKS, help='Comma separated list of font blocks')
 parser.add_argument('--output', dest='out', required=True, help='Output header file that contains font data')
 parser.add_argument('--debug-png', dest='dbgpng', type=str, default=None, help='Debug font PNG file')
@@ -92,6 +94,13 @@ blocks = {
   "cjk-uni":  (0x4E00, 0x9FEF, 16),   # Unified CJK Ideographs
   "fixwidth": (0xFF01, 0xFF20, 16),   # Full-width characters
 
+  # 12 pixel wide variants (Fusion Pixel), glyphs come from --font-files-12
+  "cjk-sym12":  (0x3000, 0x3009, 12),
+  "hiragana12": (0x3040, 0x309F, 12),
+  "katakana12": (0x30A0, 0x30FF, 12),
+  "cjk-uni12":  (0x4E00, 0x9FEF, 12),
+  "fixwidth12": (0xFF01, 0xFF20, 12),
+
   # Composable char blocks
   "hangul-part": (0x20000, 0x200CC, 16, ["hangul"]),   # Full-width hangul composite syllable.
 }
@@ -110,6 +119,15 @@ for f in args.fontfiles:
 charshp = {int(x[0], 16):len(x[1]) // 4 for x in fonthex}
 fontmap = {int(x[0], 16):convchars(x[1]) for x in fonthex}
 
+# 12 pixel wide glyphs: 16 rows of 12 bits (leftmost pixel is bit 11), converted to columns.
+fontmap12 = {}
+for f in args.fontfiles12:
+  for line in open(f, "r").read().strip().split("\n"):
+    cn, hexrows = line.split(":")
+    assert len(hexrows) == 64
+    rows = [int(hexrows[i:i+4], 16) for i in range(0, 64, 4)]
+    fontmap12[int(cn, 16)] = [sum(1 << r for r in range(16) if rows[r] & (1 << (11 - c))) for c in range(12)]
+
 
 # Calculate the block sizes and ranges, total character count, etc.
 pickedblks = set(args.blocks.split(","))
@@ -125,7 +143,7 @@ for b in allblocks:
 
 # Force/Override sizes as specified in blocks. We do this since we do not support
 # mixing 8-wide and 16-wide chars. It seems only some charsets like Hiragana have issues really.
-for bs, be, bsize, *_ in blocks.values():
+for bs, be, bsize, *_ in list(blocks.values()) + [blocks[x] for x in pickedblks]:
   for cn in range(bs, be+1):
     charshp[cn] = bsize
 
@@ -147,8 +165,9 @@ oblocks = []
 for startchar, endchar, charwidth, _ in charblocks:
   numchrs = endchar - startchar + 1
   print("Character block", hex(startchar), "-", hex(endchar), charwidth, "wide")
-  charws = [len(vfontmap[cn]) for cn in range(startchar, endchar + 1) if cn in vfontmap]
-  assert(len(set(charws)) == 1)
+  if charwidth != 12:
+    charws = [len(vfontmap[cn]) for cn in range(startchar, endchar + 1) if cn in vfontmap]
+    assert(len(set(charws)) == 1)
 
   if charwidth == 8:
     # Take the chance to dedup
@@ -186,6 +205,20 @@ for startchar, endchar, charwidth, _ in charblocks:
     d = b"".join(struct.pack("<H", x) for x in index8) + chard8p
     oblocks.append(d + (b"\x00" * (4 - (len(d) % 4))))
 
+  elif charwidth == 12:
+    # Fixed width, 12 columns of 16 bit each. Missing chars are drawn as a hollow box.
+    box = [0x3FFC] + [0x2004] * 10 + [0x3FFC]
+    data12 = b""
+    nmissing = 0
+    for cn in range(startchar, endchar + 1):
+      if cn not in fontmap12:
+        nmissing += 1
+      chdata = fontmap12.get(cn, box)
+      assert len(chdata) == 12
+      data12 += b"".join(struct.pack("<H", x) for x in chdata)
+    oblocks.append(data12 + (b"\x00" * (-len(data12) % 4)))
+    print(len(data12) // 24, "characters created for 12x16 char block", len(data12), "bytes,", nmissing, "missing")
+
   else:
     data16 = b""
     for cn in range(startchar, endchar + 1):
@@ -214,7 +247,7 @@ with open(args.out, "wb") as ofd:
   blksize = sum(len(b) for b in oblocks) + 16*numhdrs + 8
   ofd.write(struct.pack("<ccBBI", b"F", b"O", 1, numhdrs, blksize))
   for startchar, endchar, charwidth, compblk in charblocks:
-    flags = 1 if charwidth == 16 else 0
+    flags = 1 if charwidth == 16 else 2 if charwidth == 12 else 0
 
     if compblk:
       for dset in compblk:

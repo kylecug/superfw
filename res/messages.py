@@ -33,8 +33,8 @@ en_strings = [
   "MSG_SYS_SETTINGS": "Settings",
   "MSG_SYS_TOOLS": "Tools",
   "MSG_SYS_INFO": "Info",
-  "MSG_KNOB_ENABLED": "< Enabled >",
-  "MSG_KNOB_DISABLED": "< Disabled >",
+  "MSG_KNOB_ENABLED": "< On >",
+  "MSG_KNOB_DISABLED": "< Off >",
 
   "MSG_Q0_DELFILE":  "Delete this file?",
   "MSG_Q1_NOPATCH":  "No patches were found for this ROM, do you want to generate them?",
