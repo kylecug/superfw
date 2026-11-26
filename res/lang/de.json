@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav wurde zurückgesetzt!",
     "MSG_SAVOPT_MSG_RERR": "Konnte .sav nicht lesen!",
     "MSG_SAVOPT_MSG_WERR": "Konnte .sav nicht schreiben!",
-    "MSG_FWUP_HOTKEY": "Unten+B+Start verwenden, um Updates freizuschalten",
     "MSG_FWUP_ENABLED": "Flashen von Updates aktiviert",
     "MSG_FWUP_DISABLED": "Flashen ist deaktiviert!",
     "MSG_FWUPD_MENU": "Firmware-Update",

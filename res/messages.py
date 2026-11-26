@@ -29,6 +29,7 @@ en_strings = [
   "MSG_TAB_RECENT": "Recent",
   "MSG_TAB_BROWSE": "Browse",
   "MSG_TAB_NOR": "NOR",
+  "MSG_TAB_FLASH": "Flash",
   "MSG_START_HINT": "START/Menu",
   "MSG_SYS_SETTINGS": "Settings",
   "MSG_SYS_TOOLS": "Tools",
@@ -201,7 +202,12 @@ en_strings = [
   "MSG_SAVOPT_MSG_WERR": "Could not write sav file!",    # alertmsg
   "MSG_REMEMB_CFG_OK": "Config saved!",                  # alertmsg
 
-  "MSG_FWUP_HOTKEY":   "Use Down+B+Start to unlock updates",
+  "MSG_FWUP_HOTKEY":   "Allow flashing in the last L/R page",
+  "MSG_FLASH_ALLOW":   "Allow flashing for now (A)",
+  "MSG_FLASH_REVOKE":  "Disallow flashing (A)",
+  "MSG_FLASH_ST_OFF":  "Flashing is not allowed",
+  "MSG_FLASH_ST_ON":   "Flashing allowed until reboot",
+  "MSG_FLASH_RISK":    "RISK: flashing overwrites the cart firmware. Power loss or a bad file can brick it (recovery needs an NDS + flash cart). Test via chain loading first; never power off while flashing.",
   "MSG_FWUP_ENABLED":  "Update flashing is enabled",
   "MSG_FWUPD_MENU": "Firmware update",
   "MSG_FWUPD_UNK":  "Unknown firmware type",
@@ -210,7 +216,7 @@ en_strings = [
   "MSG_FWUPD_CHECKING": "Checking image ...",
   "MSG_FWUPD_ERASING":  "Erasing flash ...",
   "MSG_FWUPD_PROGRAM":  "Programming firmware ...",
-  "MSG_FWUP_DISABLED": "Flashing is disabled!",            # alertmsg
+  "MSG_FWUP_DISABLED": "Flashing is disabled! Allow it in the Flash page",            # alertmsg
   "MSG_FWUPD_DONE":    "Flash update complete!",           # alertmsg
   "MSG_FLASH_READOK": "Flash dump successful!",            # alertmsg
 

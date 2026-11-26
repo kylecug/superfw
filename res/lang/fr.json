@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav effacé !",
     "MSG_SAVOPT_MSG_RERR": "Échec de lecture du .sav !",
     "MSG_SAVOPT_MSG_WERR": "Échec d'écriture du .sav !",
-    "MSG_FWUP_HOTKEY": "Appuyez sur Bas+B+Start pour activer les mises à jour du firmware",
     "MSG_FWUP_ENABLED": "Flash firmware activé !",
     "MSG_FWUP_DISABLED": "Flash firmware désactivé !",
     "MSG_FWUPD_MENU": "Mise à jour du firmware",

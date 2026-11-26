@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav dikosongkan!",
     "MSG_SAVOPT_MSG_RERR": "Tidak dapat membaca .sav!",
     "MSG_SAVOPT_MSG_WERR": "Tidak dapat menulis .sav!",
-    "MSG_FWUP_HOTKEY": "⯆+B+Start = izinkan kemaskini firmware",
     "MSG_FWUP_ENABLED": "Flashing kemaskini didayakan*",
     "MSG_FWUP_DISABLED": "Flashing FW dimatikan!",
     "MSG_FWUPD_MENU": "Kemaskini firmware",

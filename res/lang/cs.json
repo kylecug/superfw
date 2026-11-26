@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav byl vyresetován!",
     "MSG_SAVOPT_MSG_RERR": "Nepodařilo se přečíst .sav!",
     "MSG_SAVOPT_MSG_WERR": "Nepodařilo se zapsat .sav!",
-    "MSG_FWUP_HOTKEY": "Stiskněte DOLŮ+B+Start pro odemknutí aktualizací",
     "MSG_FWUP_ENABLED": "Flashování aktualizací bylo aktivováno!",
     "MSG_FWUP_DISABLED": "Flashování je vypnuté!",
     "MSG_FWUPD_MENU": "Aktualizace Firmwaru",

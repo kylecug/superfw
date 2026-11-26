@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": "S'ha esborrat l'arxiu .sav!",
     "MSG_SAVOPT_MSG_RERR": "Error de lectura del .sav!",
     "MSG_SAVOPT_MSG_WERR": "Error d'escriptura del .sav!",
-    "MSG_FWUP_HOTKEY": "Prem ⯆+B+Start per permetre actualitzacions",
     "MSG_FWUP_ENABLED": "Les actualitzacions estan permeses",
     "MSG_FWUP_DISABLED": "Actualitzacions desactivades!",
     "MSG_FWUPD_MENU": "Actualització del firmware",

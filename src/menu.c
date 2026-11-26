@@ -52,6 +52,7 @@ enum {
   #ifdef SUPPORT_NORGAMES
   MENUTAB_NORBROWSE,     // Browses Flash games and launches them.
   #endif
+  MENUTAB_FLASH,         // Firmware flashing: temporary unlock button and the risks (last page)
   MENUTAB_SETTINGS,      // Unused as a tab (settings live in a pop-up), kept for icon numbering
   MENUTAB_UILANG,        // Unused (merged into settings), kept for icon numbering
   MENUTAB_TOOLS,         // Tools (advaned menu)
@@ -123,7 +124,6 @@ static t_list_layout lay = { 17, 14,  9, 144, 16, 144, 1 };
 #define IGM_PAL_BL      244
 #define SEL_COLOR       255
 
-#define FLASH_UNLOCK_KEYS      (KEY_BUTTDOWN|KEY_BUTTB|KEY_BUTTSTA)
 #define FLASH_GO_KEYS          (KEY_BUTTUP|KEY_BUTTL|KEY_BUTTR)
 
 enum {
@@ -2268,6 +2268,43 @@ void render_tools(volatile uint8_t *frame) {
   cw_scrollbar(frame, base, ToolsMAX);
 }
 
+// Draws text left aligned, wrapping it at spaces (or anywhere if there are none, like in chinese).
+static void draw_text_wrapped_left(const char *t, volatile uint8_t *frame, unsigned x, unsigned y,
+                                   unsigned maxw, unsigned lineh, unsigned maxlines) {
+  while (*t == ' ')
+    t++;
+  for (unsigned l = 0; *t && l < maxlines; l++) {
+    char tmp[128];
+    unsigned outw;
+    unsigned n = font_width_cap_space(t, maxw, &outw);
+    if (!n)
+      n = font_width_cap(t, maxw);
+    if (!n || n >= sizeof(tmp))
+      break;
+    memcpy(tmp, t, n);
+    tmp[n] = 0;
+    draw_text_idx8_bus16(tmp, (uint8_t*)&frame[y * SCREEN_WIDTH + x], SCREEN_WIDTH, FT_COLOR);
+    t += n;
+    while (*t == ' ')
+      t++;
+    y += lineh;
+  }
+}
+
+// Firmware flashing page (the last one): the button temporarily allows flashing, and the risks
+// are spelled out below it.
+void render_flashpage(volatile uint8_t *frame) {
+  // Footer bar (the START hint is drawn on top of it)
+  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
+
+  draw_central_text(msgs[lang_id][enable_flashing ? MSG_FLASH_ST_ON : MSG_FLASH_ST_OFF],
+                    frame, SCREEN_WIDTH / 2, 18);
+  draw_button_box(frame, 20, 220, 36, 56, true);
+  draw_central_text(msgs[lang_id][enable_flashing ? MSG_FLASH_REVOKE : MSG_FLASH_ALLOW],
+                    frame, SCREEN_WIDTH / 2, 38);
+  draw_text_wrapped_left(msgs[lang_id][MSG_FLASH_RISK], frame, 12, 60, 216, 14, 6);
+}
+
 // Tabs that L/R cycle through. Settings, tools and info live in the START menu.
 static const uint8_t game_tabs[] = {
   MENUTAB_RECENT,
@@ -2275,6 +2312,7 @@ static const uint8_t game_tabs[] = {
   #ifdef SUPPORT_NORGAMES
   MENUTAB_NORBROWSE,
   #endif
+  MENUTAB_FLASH,
 };
 #define game_tab_cnt (sizeof(game_tabs) / sizeof(game_tabs[0]))
 
@@ -2284,6 +2322,7 @@ static const uint16_t game_tab_names[] = {
   #ifdef SUPPORT_NORGAMES
   MSG_TAB_NOR,
   #endif
+  MSG_TAB_FLASH,
 };
 
 // Text tabs on the top bar, the current one is highlighted.
@@ -2384,6 +2423,7 @@ void menu_render(unsigned fcnt) {
         #ifdef SUPPORT_NORGAMES
         render_flashbrowser,
         #endif
+        render_flashpage,
       };
       renderfns[smenu.menu_tab](frame);
       smenu.anim_state += fcnt * animspd_lut[anim_speed];
@@ -3526,8 +3566,12 @@ static void keypress_menu_tools(unsigned newkeys) {
 static void keypress_menu_info(unsigned newkeys) {
   if (newkeys & KEY_BUTTA)
     smenu.info.selector = (smenu.info.selector + 1) % 4;
-  if ((curr_pressed_keys() & FLASH_UNLOCK_KEYS) == FLASH_UNLOCK_KEYS)
-    enable_flashing = true;
+}
+
+// Flashing page: the unlock is a button, only valid until the next boot.
+static void keypress_menu_flashpage(unsigned newkeys) {
+  if (newkeys & KEY_BUTTA)
+    enable_flashing = !enable_flashing;
 }
 
 
@@ -3609,9 +3653,7 @@ void menu_keypress(unsigned newkeys) {
       spop.submenu = (spop.submenu + 1) % subcnt;
 
     // Close pop-up on B button (settings/tools/info go back to the START menu).
-    // The flash unlock combo (DOWN+B+START) in the info window must not close it.
-    const bool unlock_combo = (spop.pop_num == POPUP_INFO) && (curr_pressed_keys() & KEY_BUTTSTA);
-    if ((newkeys & KEY_BUTTB) && !unlock_combo) {
+    if (newkeys & KEY_BUTTB) {
       if (spop.pop_num == POPUP_SETTINGS || spop.pop_num == POPUP_TOOLS || spop.pop_num == POPUP_INFO) {
         spop.selector = (spop.pop_num == POPUP_SETTINGS) ? 0 :
                         (spop.pop_num == POPUP_TOOLS)    ? 1 : 2;
@@ -3663,6 +3705,7 @@ void menu_keypress(unsigned newkeys) {
       #ifdef SUPPORT_NORGAMES
       keypress_menu_norbrowse,
       #endif
+      keypress_menu_flashpage,
     };
     // Do not handle the key that just opened a pop-up in the page below.
     if (!spop.pop_num)

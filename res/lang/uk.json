@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav очищено!",
     "MSG_SAVOPT_MSG_RERR": "Не вдалося прочитати файл!",
     "MSG_SAVOPT_MSG_WERR": "Файл не записано!",
-    "MSG_FWUP_HOTKEY": "Натисніть Вниз+B+Start для розблокування оновлень",
     "MSG_FWUP_ENABLED": "Оновлення прошивки увімкнено",
     "MSG_FWUP_DISABLED": "Оновл. прошивки вимкнено!",
     "MSG_FWUPD_MENU": "Оновлення прошивки",

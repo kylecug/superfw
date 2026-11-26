@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav 파일 초기화 완료!",
     "MSG_SAVOPT_MSG_RERR": ".sav 파일 읽기 실패!",
     "MSG_SAVOPT_MSG_WERR": ".sav 파일 작성 실패!",
-    "MSG_FWUP_HOTKEY": "Down+B+Start 버튼으로 업데이트 잠금 해제",
     "MSG_FWUP_ENABLED": "펌웨어 업데이트 활성화됨",
     "MSG_FWUP_DISABLED": "펌웨어 업데이트 비활성화됨!",
     "MSG_FWUPD_MENU": "펌웨어 업데이트",

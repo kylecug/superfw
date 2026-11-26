@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav è stato cancellato!",
     "MSG_SAVOPT_MSG_RERR": "Impossibile leggere .sav!",
     "MSG_SAVOPT_MSG_WERR": "Impossibile scrivere .sav!",
-    "MSG_FWUP_HOTKEY": "Usa Giù+B+Start per sbloccare gli aggiornamenti",
     "MSG_FWUP_ENABLED": "Installazione di aggiornamenti abilitate",
     "MSG_FWUP_DISABLED": "Installazioni disabilitate",
     "MSG_FWUPD_MENU": "Aggiornamento firmware",

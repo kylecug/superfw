@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav apagado!",
     "MSG_SAVOPT_MSG_RERR": "Erro ao ler sav!",
     "MSG_SAVOPT_MSG_WERR": "Erro ao gravar sav!",
-    "MSG_FWUP_HOTKEY": "⯆+B+Start para permitir update",
     "MSG_FWUP_ENABLED": "Update ativo",
     "MSG_FWUP_DISABLED": "Update desativado!",
     "MSG_FWUPD_MENU": "Atualização de firmware",

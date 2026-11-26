@@ -96,7 +96,6 @@
     "MSG_SAVOPT_MSG2": ".sav was cleared!",
     "MSG_SAVOPT_MSG_RERR": "Could not read sav file!",
     "MSG_SAVOPT_MSG_WERR": "Could not write sav file!",
-    "MSG_FWUP_HOTKEY": "Use Down+B+Start to unlock updates",
     "MSG_FWUP_ENABLED": "Update flashing is enabled",
     "MSG_FWUP_DISABLED": "Flashing is disabled!",
     "MSG_FWUPD_MENU": "Firmware update",
