@@ -33,7 +33,6 @@ en_strings = [
   "MSG_SYS_SETTINGS": "Settings",
   "MSG_SYS_TOOLS": "Tools",
   "MSG_SYS_INFO": "Info",
-  "MSG_SYS_FLASH": "Flash",
   "MSG_KNOB_ENABLED": "< On >",
   "MSG_KNOB_DISABLED": "< Off >",
 
@@ -66,7 +65,7 @@ en_strings = [
   "MSG_SETG_SYS":    "System",
   "MSG_SETG_SAVE":   "Saves",
   "MSG_SETG_GAME":   "Games",
-  "MSG_SETG_HINT":   "L/R: switch settings group",
+  "MSG_SETG_HINT":   "L/R: switch tab",
 
   "MSG_SETT_HOTK":   "Menu Hot-key",
   "MSG_SETT_BOOT":   "Game boot",
@@ -89,6 +88,16 @@ en_strings = [
   "MSG_BROW_EMPTY":  "Empty directory",
 
   "MSG_UIS_THEME": "Theme color",
+  "MSG_THEME_0": "Daylight",
+  "MSG_THEME_1": "Midnight",
+  "MSG_THEME_2": "Terminal",
+  "MSG_THEME_3": "Sakura",
+  "MSG_THEME_4": "Amber",
+  "MSG_THEME_5": "Forest",
+  "MSG_THEME_6": "Sunset",
+  "MSG_THEME_7": "Coffee",
+  "MSG_THEME_8": "Ocean",
+  "MSG_THEME_9": "Contrast",
   "MSG_UIS_LANG":  "Language",
   "MSG_UIS_RECNT": "Recent ROMs",
   "MSG_UIS_ANSPD": "Text speed",
@@ -202,12 +211,10 @@ en_strings = [
   "MSG_SAVOPT_MSG_WERR": "Could not write sav file!",    # alertmsg
   "MSG_REMEMB_CFG_OK": "Config saved!",                  # alertmsg
 
-  "MSG_FWUP_HOTKEY":   "Allow flashing in START > Flash",
+  "MSG_FWUP_HOTKEY":   "Allow flashing in START > Info",
   "MSG_FLASH_ALLOW":   "Allow flashing for now (A)",
-  "MSG_FLASH_REVOKE":  "Disallow flashing (A)",
-  "MSG_FLASH_ST_OFF":  "Flashing is not allowed",
-  "MSG_FLASH_ST_ON":   "Flashing allowed until reboot",
-  "MSG_FLASH_RISK":    "RISK: flashing overwrites the cart firmware. Power loss or a bad file can brick it (needs an NDS + flash cart to recover). Test via chain loading first.",
+  "MSG_FLASH_REVOKE":  "Flashing allowed - cancel (A)",
+  "MSG_FLASH_RISK":    "RISK: power loss or a bad file while flashing can brick the cart; recovery needs an NDS + flash cart.",
   "MSG_FWUP_ENABLED":  "Update flashing is enabled",
   "MSG_FWUPD_MENU": "Firmware update",
   "MSG_FWUPD_UNK":  "Unknown firmware type",
@@ -216,7 +223,7 @@ en_strings = [
   "MSG_FWUPD_CHECKING": "Checking image ...",
   "MSG_FWUPD_ERASING":  "Erasing flash ...",
   "MSG_FWUPD_PROGRAM":  "Programming firmware ...",
-  "MSG_FWUP_DISABLED": "Flashing is disabled! Allow it in START > Flash",            # alertmsg
+  "MSG_FWUP_DISABLED": "Flashing is disabled! Allow it in START > Info",            # alertmsg
   "MSG_FWUPD_DONE":    "Flash update complete!",           # alertmsg
   "MSG_FLASH_READOK": "Flash dump successful!",            # alertmsg
 

@@ -38,7 +38,7 @@ typedef struct {
   uint16_t sh_color;     // Menu shadow/disabled color
 } t_theme_colors;
 
-#define THEME_COUNT 6
+#define THEME_COUNT 10
 extern const t_theme_colors themes[THEME_COUNT];
 
 extern const t_combo_key hotkey_list[13];

@@ -76,11 +76,7 @@ enum {
   POPUP_GBA_NORWRITE,          // Write a GBA ROM to NOR
   POPUP_GBA_NORLOAD,           // Launch a NOR game
 #endif
-  POPUP_SYSMENU,               // System menu (START): settings, tools, info
-  POPUP_SETTINGS,              // All settings (general + UI) in a pop-up window
-  POPUP_TOOLS,                 // Tools in a pop-up window
-  POPUP_INFO,                  // Info / about in a pop-up window
-  POPUP_FLASH,                 // Firmware flashing unlock (button and risks) in a pop-up window
+  POPUP_SYSTEM,                // START window: settings groups, tools and info (tabs, L/R switch)
 };
 
 // File list layout, it depends on the selected font size (see ui_font_init).
@@ -284,6 +280,7 @@ typedef void (*t_mkeyupd_fn)(unsigned newkeys);
 // Info and state for the menu tab
 static struct {
   uint8_t menu_tab;
+  uint8_t sys_tab;                // Tab of the START window (remembered)
 
   unsigned anim_state;            // Animation (text rotation) status.
 
@@ -1444,28 +1441,23 @@ static void draw_central_text_wrapped(const char *t, volatile uint8_t *frame, un
 // The pop-ups opened from the START menu are windows anchored to the bottom
 // right corner of the 240x160 screen. All x coordinates/widths are even since
 // we fill the frame buffer 16 bits at a time.
-#define CW_LEFT     48                          // Big window (settings, tools, info)
+#define CW_LEFT     48                          // (old corner windows, still used for sizing)
 #define CW_RIGHT    238
 #define CW_TOP      34
 #define CW_BOTTOM   158
-#define CW_CX       144                         // Horizontal center of the big window (logo needs it even)
-#define SM_LEFT     142                         // Small window (START menu)
+#define CW_CX       144
 #define CW_ROWH     14                          // Row pitch: 12 pixel high bars plus 2 pixels of gap
 #define CW_ROWS     7                           // Visible rows
-#define SM_TOP      (CW_BOTTOM - (4 * CW_ROWH + 8))              // START menu: 4 rows, hugs the corner
-#define FW_TOP      20                                           // Flashing window (tall, it has a text)
-#define TW_TOP      (CW_BOTTOM - (ToolsMAX * CW_ROWH + 8))       // Tools window: sized to its rows
-#define TW_ROW0Y    (TW_TOP + 4)
-// Settings window: tab bar (setting groups), rows (at most 6 settings plus the save row), help bar
+// System window (START): a row of tabs (settings groups, tools, info), the rows and a help bar
+#define SYS_LEFT    4
+#define SYS_CX      ((SYS_LEFT + CW_RIGHT) / 2)
 #define SW_TOP      24
 #define SW_TAB_Y    (SW_TOP + 2)
 #define SW_TAB_H    14
 #define SW_ROW0Y    (SW_TAB_Y + SW_TAB_H + 2)
 #define SW_HELPY    (SW_ROW0Y + CW_ROWS * CW_ROWH + 2)
-#define CW_HELPY    (CW_TOP + 4 + 5 * 20 + 2)    // Info window: flashing info bar at the bottom
-#define CW_ROW0Y    (CW_TOP + 4)                // First row
-#define CW_ROWW     (CW_RIGHT - CW_LEFT - 4 - 4)  // Row width, leaves room for the scroll bar
-#define SM_ROWW     (CW_RIGHT - SM_LEFT - 4)
+#define CW_ROW0Y    SW_ROW0Y                    // First row
+#define CW_ROWW     (CW_RIGHT - SYS_LEFT - 8)   // Row width
 
 static void fill_rect(volatile uint8_t *frame, unsigned x, unsigned y, unsigned w, unsigned h, uint8_t color) {
   for (unsigned r = 0; r < h; r++)
@@ -1494,22 +1486,6 @@ static void cw_row(volatile uint8_t *frame, unsigned left, unsigned width, unsig
   draw_text_ovf(label, frame, tx, y - 2, lw);
   if (value)
     draw_rightj_ovf(value, frame, xr, y - 2, vw);
-}
-
-// Vertical scroll bar for a window list (only when there is more than one page).
-static void cw_scrollbar(volatile uint8_t *frame, int base, int total) {
-  if (total <= CW_ROWS)
-    return;
-  const unsigned track = CW_ROWS * CW_ROWH;
-  const unsigned th = MAX(8U, track * CW_ROWS / total);
-  const unsigned pos = (track - th) * base / (total - CW_ROWS);
-  fill_rect(frame, CW_RIGHT - 4, CW_ROW0Y + pos, 2, th, FG_COLOR);
-}
-
-static int cw_base(int sel, int total) {
-  if (total <= CW_ROWS || sel <= 2)
-    return 0;
-  return sel >= total - 3 ? total - CW_ROWS : sel - 2;
 }
 
 void render_recent(volatile uint8_t *frame) {
@@ -2091,7 +2067,7 @@ static int settings_row(unsigned idx, const char **label, const char **value, ch
     break;
   case SettUiTheme:
     *label = msgs[lang_id][MSG_UIS_THEME];
-    npf_snprintf(vb, vbsz, "< %u >", menu_theme + 1U);
+    npf_snprintf(vb, vbsz, "< %s >", msgs[lang_id][MSG_THEME_0 + menu_theme]);
     *value = vb;
     break;
   case SettUiLang:
@@ -2156,119 +2132,6 @@ static const char *settings_help(char *tmp, unsigned tmpsz) {
   return msgs[lang_id][help_msg];
 }
 
-void render_settings(volatile uint8_t *frame) {
-  draw_corner_window(frame, CW_LEFT, SW_TOP);
-
-  // Tab bar with the setting groups
-  const unsigned grp = smenu.set.group;
-  unsigned tx = CW_LEFT + 4;
-  for (unsigned g = 0; g < SetGrpCNT; g++) {
-    const char *name = msgs[lang_id][set_group_msgs[g]];
-    const unsigned tw = (font_width(name) + 8 + 1) & ~1U;
-    fill_rect(frame, tx, SW_TAB_Y, tw, SW_TAB_H - 2, g == grp ? HI_COLOR : FG_COLOR);
-    draw_text_ovf(name, frame, tx + 4, SW_TAB_Y - 2, tw - 4);
-    tx += tw + 2;
-  }
-
-  // Rows of the current group
-  const unsigned total = set_group_len(grp) + 1;
-  for (unsigned i = 0; i < total; i++) {
-    const unsigned y = SW_ROW0Y + i * CW_ROWH;
-    const bool sel = (i == smenu.set.idx[grp]);
-    const char *label, *value;
-    char vb[48];
-    const int kind = settings_row(set_row_id(grp, i), &label, &value, vb, sizeof(vb));
-    if (kind == 0)
-      cw_row(frame, CW_LEFT, CW_ROWW, y, sel, label, value);
-    else {
-      // The save button is a centered "bar".
-      fill_rect(frame, CW_LEFT + 2, y, CW_ROWW, CW_ROWH - 2, sel ? HI_COLOR : FG_COLOR);
-      draw_central_text(label, frame, CW_LEFT + 2 + CW_ROWW / 2, y - 2);
-    }
-  }
-
-  // Help bar at the bottom of the window (a hint about the tabs if there is no help text)
-  char tmp[128];
-  const char *help = settings_help(tmp, sizeof(tmp));
-  if (!help[0])
-    help = msgs[lang_id][MSG_SETG_HINT];
-  fill_rect(frame, CW_LEFT + 2, SW_HELPY, CW_RIGHT - CW_LEFT - 4, 16, FG_COLOR);
-  draw_text_ovf_rotate(help, frame, CW_LEFT + 6, SW_HELPY,
-                       CW_RIGHT - CW_LEFT - 12, &smenu.anim_state);
-}
-
-void render_info(volatile uint8_t *frame) {
-  uint32_t vmaj = VERSION_WORD >> 16;
-  uint32_t vmin = VERSION_WORD & 0xFFFF;
-  uint32_t gitver = VERSION_SLUG_WORD;
-  char tmp[64], tmp2[32];
-  const unsigned maxw = CW_RIGHT - CW_LEFT - 16;
-
-  draw_corner_window(frame, CW_LEFT, CW_TOP);
-  init_logo_palette(&MEM_PALETTE[1]);
-  render_logo((uint16_t*)frame, CW_CX, 54, 4);
-
-  switch (smenu.info.selector) {
-  case 0:
-    draw_central_text("by davidgf", frame, CW_CX, 70);
-    npf_snprintf(tmp, sizeof(tmp), "Version %lu.%lu " CUSTOM_NAME " v%u", vmaj, vmin, (unsigned)CUSTOM_VERSION);
-    draw_central_text_ovf(tmp, frame, CW_CX, 88, maxw);
-    draw_central_text(FW_FLAVOUR " variant", frame, CW_CX, 106);
-    npf_snprintf(tmp, sizeof(tmp), "(%08lx)", gitver);
-    draw_central_text(tmp, frame, CW_CX, 122);
-    break;
-  case 1:
-    draw_central_text("Flash info", frame, CW_CX, 72);
-    npf_snprintf(tmp, sizeof(tmp), "Dev ID: %08lx", flashinfo.deviceid);
-    draw_central_text_ovf(tmp, frame, CW_CX, 92, maxw);
-    if (flashinfo.size && flashinfo.blksize && flashinfo.blkcount) {
-      human_size_kb(tmp2, sizeof(tmp2), flashinfo.size >> 10);
-      npf_snprintf(tmp, sizeof(tmp), "%s [%lu * %lu]", tmp2, flashinfo.blksize, flashinfo.blkcount);
-      if (flashinfo.regioncnt != 1)
-        strcat(tmp, " !");
-    } else {
-      npf_snprintf(tmp, sizeof(tmp), "No CFI (fixed %dKiB)", FW_MAX_SIZE_KB);
-    }
-    draw_central_text_ovf(tmp, frame, CW_CX, 112, maxw);
-    break;
-  case 2:
-    draw_central_text_ovf(msgs[lang_id][MSG_DBPINFO], frame, CW_CX, 72, maxw);
-    npf_snprintf(tmp, sizeof(tmp), "%s - %s", pdbinfo.version, pdbinfo.date);
-    draw_central_text_ovf(tmp, frame, CW_CX, 92, maxw);
-    npf_snprintf(tmp, sizeof(tmp), "Game count: %lu", pdbinfo.patch_count);
-    draw_central_text_ovf(tmp, frame, CW_CX, 112, maxw);
-    break;
-  case 3:
-    npf_snprintf(tmp, sizeof(tmp), "SD Card ID: %02x | %04x", sd_info.manufacturer, sd_info.oemid);
-    draw_central_text_ovf(tmp, frame, CW_CX, 72, maxw);
-    human_size_kb(tmp2, sizeof(tmp2), sd_info.block_cnt / 2);
-    npf_snprintf(tmp, sizeof(tmp), "Type: %s  Size: %s", sd_info.sdhc ? "SDHC" : "SDSC", tmp2);
-    draw_central_text_ovf(tmp, frame, CW_CX, 92, maxw);
-    npf_snprintf(tmp, sizeof(tmp), "Info: %c%c%c%c%c (%d/%d)",
-      sd_info.prodname[0] ?: '#', sd_info.prodname[1] ?: '#',
-      sd_info.prodname[2] ?: '#', sd_info.prodname[3] ?: '#',
-      sd_info.prodname[4] ?: '#', 2000 + sd_info.year, sd_info.month);
-    draw_central_text_ovf(tmp, frame, CW_CX, 112, maxw);
-    break;
-  }
-
-  // Flashing info bar at the bottom of the window
-  fill_rect(frame, CW_LEFT + 2, CW_HELPY, CW_RIGHT - CW_LEFT - 4, 16, FG_COLOR);
-  draw_text_ovf_rotate(enable_flashing ? msgs[lang_id][MSG_FWUP_ENABLED] : msgs[lang_id][MSG_FWUP_HOTKEY], frame,
-                       CW_LEFT + 6, CW_HELPY, CW_RIGHT - CW_LEFT - 12, &smenu.anim_state);
-}
-
-void render_tools(volatile uint8_t *frame) {
-  draw_corner_window(frame, CW_LEFT, TW_TOP);
-
-  const int sel = smenu.tools.selector;
-  const int base = cw_base(sel, ToolsMAX);
-  for (int i = 0; i < CW_ROWS && base + i < (int)ToolsMAX; i++)
-    cw_row(frame, CW_LEFT, CW_ROWW, TW_ROW0Y + i * CW_ROWH, base + i == sel,
-           msgs[lang_id][MSG_TOOLS0_SDRAM + base + i], NULL);
-  cw_scrollbar(frame, base, ToolsMAX);
-}
-
 // Draws text left aligned, wrapping it at spaces (or anywhere if there are none, like in chinese).
 static void draw_text_wrapped_left(const char *t, volatile uint8_t *frame, unsigned x, unsigned y,
                                    unsigned maxw, unsigned lineh, unsigned maxlines) {
@@ -2292,18 +2155,141 @@ static void draw_text_wrapped_left(const char *t, volatile uint8_t *frame, unsig
   }
 }
 
-// Firmware flashing window (last entry of the START menu): the button temporarily allows
-// flashing, and the risks are spelled out below it.
-void render_flashwin(volatile uint8_t *frame) {
-  draw_corner_window(frame, CW_LEFT, FW_TOP);
+// Tabs of the START window: the four settings groups, then tools and info.
+enum {
+  SysTabTools = SetGrpCNT,
+  SysTabInfo,
+  SysTabCNT
+};
 
-  draw_central_text_ovf(msgs[lang_id][enable_flashing ? MSG_FLASH_ST_ON : MSG_FLASH_ST_OFF],
-                        frame, CW_CX, FW_TOP + 4, CW_RIGHT - CW_LEFT - 12);
-  draw_button_box(frame, CW_LEFT + 8, CW_RIGHT - 8, FW_TOP + 24, FW_TOP + 44, true);
+static const uint16_t sys_tab_msgs[SysTabCNT] = {
+  MSG_SETG_UI, MSG_SETG_SYS, MSG_SETG_SAVE, MSG_SETG_GAME, MSG_SYS_TOOLS, MSG_SYS_INFO,
+};
+
+// Rows of a settings group, each group fits without scrolling.
+static void render_sys_settings(volatile uint8_t *frame, unsigned grp) {
+  const unsigned total = set_group_len(grp) + 1;
+  for (unsigned i = 0; i < total; i++) {
+    const unsigned y = SW_ROW0Y + i * CW_ROWH;
+    const bool sel = (i == smenu.set.idx[grp]);
+    const char *label, *value;
+    char vb[48];
+    const int kind = settings_row(set_row_id(grp, i), &label, &value, vb, sizeof(vb));
+    if (kind == 0)
+      cw_row(frame, SYS_LEFT, CW_ROWW, y, sel, label, value);
+    else {
+      // The save button is a centered "bar".
+      fill_rect(frame, SYS_LEFT + 2, y, CW_ROWW, CW_ROWH - 2, sel ? HI_COLOR : FG_COLOR);
+      draw_central_text(label, frame, SYS_CX, y - 2);
+    }
+  }
+
+  // Help bar at the bottom of the window (a hint about the tabs if there is no help text)
+  char tmp[128];
+  const char *help = settings_help(tmp, sizeof(tmp));
+  if (!help[0])
+    help = msgs[lang_id][MSG_SETG_HINT];
+  fill_rect(frame, SYS_LEFT + 2, SW_HELPY, CW_RIGHT - SYS_LEFT - 4, 16, FG_COLOR);
+  draw_text_ovf_rotate(help, frame, SYS_LEFT + 6, SW_HELPY,
+                       CW_RIGHT - SYS_LEFT - 12, &smenu.anim_state);
+}
+
+// Info tab: a few lines about the firmware/flash/patch database/SD card (left/right switch them)
+// and, below them, the firmware flashing unlock button with the risks.
+static void render_sys_info(volatile uint8_t *frame) {
+  uint32_t vmaj = VERSION_WORD >> 16;
+  uint32_t vmin = VERSION_WORD & 0xFFFF;
+  uint32_t gitver = VERSION_SLUG_WORD;
+  char l0[64], l1[64], l2[64], tmp2[32];
+  const unsigned x = SYS_LEFT + 8;
+  const unsigned maxw = CW_RIGHT - SYS_LEFT - 16;
+
+  switch (smenu.info.selector) {
+  case 0:
+    npf_snprintf(l0, sizeof(l0), "SuperFW by davidgf");
+    npf_snprintf(l1, sizeof(l1), "Version %lu.%lu " CUSTOM_NAME " v%u", vmaj, vmin, (unsigned)CUSTOM_VERSION);
+    npf_snprintf(l2, sizeof(l2), FW_FLAVOUR " variant (%08lx)", gitver);
+    break;
+  case 1:
+    npf_snprintf(l0, sizeof(l0), "Flash info");
+    npf_snprintf(l1, sizeof(l1), "Dev ID: %08lx", flashinfo.deviceid);
+    if (flashinfo.size && flashinfo.blksize && flashinfo.blkcount) {
+      human_size_kb(tmp2, sizeof(tmp2), flashinfo.size >> 10);
+      npf_snprintf(l2, sizeof(l2), "%s [%lu * %lu]", tmp2, flashinfo.blksize, flashinfo.blkcount);
+      if (flashinfo.regioncnt != 1)
+        strcat(l2, " !");
+    } else {
+      npf_snprintf(l2, sizeof(l2), "No CFI (fixed %dKiB)", FW_MAX_SIZE_KB);
+    }
+    break;
+  case 2:
+    npf_snprintf(l0, sizeof(l0), "%s", msgs[lang_id][MSG_DBPINFO]);
+    npf_snprintf(l1, sizeof(l1), "%s - %s", pdbinfo.version, pdbinfo.date);
+    npf_snprintf(l2, sizeof(l2), "Game count: %lu", pdbinfo.patch_count);
+    break;
+  default:
+    npf_snprintf(l0, sizeof(l0), "SD Card ID: %02x | %04x", sd_info.manufacturer, sd_info.oemid);
+    human_size_kb(tmp2, sizeof(tmp2), sd_info.block_cnt / 2);
+    npf_snprintf(l1, sizeof(l1), "Type: %s  Size: %s", sd_info.sdhc ? "SDHC" : "SDSC", tmp2);
+    npf_snprintf(l2, sizeof(l2), "Info: %c%c%c%c%c (%d/%d)",
+      sd_info.prodname[0] ?: '#', sd_info.prodname[1] ?: '#',
+      sd_info.prodname[2] ?: '#', sd_info.prodname[3] ?: '#',
+      sd_info.prodname[4] ?: '#', 2000 + sd_info.year, sd_info.month);
+    break;
+  }
+
+  // Page indicator on the first line
+  char ind[16];
+  npf_snprintf(ind, sizeof(ind), "< %u/4 >", smenu.info.selector + 1U);
+  draw_text_ovf(l0, frame, x, SW_ROW0Y - 2, maxw - font_width(ind) - 8);
+  draw_rightj_text(ind, frame, CW_RIGHT - 8, SW_ROW0Y - 2);
+  draw_text_ovf(l1, frame, x, SW_ROW0Y - 2 + 14, maxw);
+  draw_text_ovf(l2, frame, x, SW_ROW0Y - 2 + 28, maxw);
+
+  // Firmware flashing: a button that temporarily allows it (until the next boot), and the risks
+  const unsigned by = SW_ROW0Y + 46;
+  draw_button_box(frame, SYS_LEFT + 8, CW_RIGHT - 8, by, by + 20, !enable_flashing);
   draw_central_text_ovf(msgs[lang_id][enable_flashing ? MSG_FLASH_REVOKE : MSG_FLASH_ALLOW],
-                        frame, CW_CX, FW_TOP + 26, CW_RIGHT - CW_LEFT - 24);
-  draw_text_wrapped_left(msgs[lang_id][MSG_FLASH_RISK], frame, CW_LEFT + 8, FW_TOP + 48,
-                         CW_RIGHT - CW_LEFT - 16, 14, 6);
+                        frame, SYS_CX, by + 2, CW_RIGHT - SYS_LEFT - 24);
+  draw_text_wrapped_left(msgs[lang_id][MSG_FLASH_RISK], frame, x, by + 22, maxw, 14, 3);
+}
+
+static void render_sys_tools(volatile uint8_t *frame) {
+  const int sel = smenu.tools.selector;
+  for (int i = 0; i < (int)ToolsMAX; i++)
+    cw_row(frame, SYS_LEFT, CW_ROWW, SW_ROW0Y + i * CW_ROWH, i == sel,
+           msgs[lang_id][MSG_TOOLS0_SDRAM + i], NULL);
+}
+
+// The START window: tabs on top (L/R switch them), the content of the tab below.
+void render_system(volatile uint8_t *frame) {
+  draw_corner_window(frame, SYS_LEFT, SW_TOP);
+
+  // Tab bar, the tabs get narrower if the texts do not fit
+  const unsigned cur = smenu.sys_tab;
+  unsigned w[SysTabCNT], sum = 0;
+  for (unsigned i = 0; i < SysTabCNT; i++) {
+    w[i] = (font_width(msgs[lang_id][sys_tab_msgs[i]]) + 6 + 1) & ~1U;
+    sum += w[i];
+  }
+  const unsigned avail = CW_RIGHT - SYS_LEFT - 8 - 2 * (SysTabCNT - 1);
+  if (sum > avail)
+    for (unsigned i = 0; i < SysTabCNT; i++)
+      w[i] = MAX(12U, (w[i] * avail / sum) & ~1U);
+
+  unsigned x = SYS_LEFT + 4;
+  for (unsigned i = 0; i < SysTabCNT; i++) {
+    fill_rect(frame, x, SW_TAB_Y, w[i], SW_TAB_H - 2, i == cur ? HI_COLOR : FG_COLOR);
+    draw_text_ovf(msgs[lang_id][sys_tab_msgs[i]], frame, x + 3, SW_TAB_Y - 2, w[i] - 3);
+    x += w[i] + 2;
+  }
+
+  if (cur < SetGrpCNT)
+    render_sys_settings(frame, cur);
+  else if (cur == SysTabTools)
+    render_sys_tools(frame);
+  else
+    render_sys_info(frame);
 }
 
 // Tabs that L/R cycle through. Settings, tools and info live in the START menu.
@@ -2342,19 +2328,6 @@ static void render_start_hint(volatile uint8_t *frame) {
   draw_rightj_text(msgs[lang_id][MSG_START_HINT], frame, SCREEN_WIDTH - 6, LIST_FOOTER_TXT_Y);
 }
 
-// START menu: small window with the system entries, anchored to the bottom right corner.
-void render_sysmenu_popup(volatile uint8_t *frame) {
-  const char * const names[4] = {
-    msgs[lang_id][MSG_SYS_SETTINGS],
-    msgs[lang_id][MSG_SYS_TOOLS],
-    msgs[lang_id][MSG_SYS_INFO],
-    msgs[lang_id][MSG_SYS_FLASH],
-  };
-  draw_corner_window(frame, SM_LEFT, SM_TOP);
-  for (unsigned i = 0; i < 4; i++)
-    cw_row(frame, SM_LEFT, SM_ROWW, SM_TOP + 4 + i * CW_ROWH, i == (unsigned)spop.selector, names[i], NULL);
-}
-
 void reload_theme(unsigned thnum) {
   // Palette 0..15 contains the main menu template colors
   MEM_PALETTE[FG_COLOR] = themes[thnum].fg_color;
@@ -2386,11 +2359,7 @@ static const struct {
   { render_gba_norwrite,   GbaNorWrCNT },
   { render_gba_norload,    GbaNorLoadCNT },
   #endif
-  { render_sysmenu_popup,  1, SM_LEFT, SM_TOP },
-  { render_settings,       1, CW_LEFT, SW_TOP },
-  { render_tools,          1, CW_LEFT, TW_TOP },
-  { render_info,           1, CW_LEFT, CW_TOP },
-  { render_flashwin,       1, CW_LEFT, FW_TOP },
+  { render_system,         1, SYS_LEFT, SW_TOP },
 };
 
 // Renders the menu. Arg0 represents the frame count difference with the
@@ -3363,7 +3332,7 @@ static void keypress_menu_norbrowse(unsigned newkeys) {
 #endif
 
 static void keypress_menu_settings(unsigned newkeys) {
-  // Up/Down move through the rows of the group (wrapping around), L/R switch the group.
+  // Up/Down move through the rows of the group (wrapping around), the window switches the group.
   // Every group remembers its own selected row.
   const unsigned rows = set_group_len(smenu.set.group) + 1;
   uint8_t *rowp = &smenu.set.idx[smenu.set.group];
@@ -3371,11 +3340,7 @@ static void keypress_menu_settings(unsigned newkeys) {
     *rowp = *rowp ? *rowp - 1 : rows - 1;
   if (newkeys & KEY_BUTTDOWN)
     *rowp = (*rowp + 1 < rows) ? *rowp + 1 : 0;
-  if (newkeys & KEY_BUTTL)
-    smenu.set.group = (smenu.set.group + SetGrpCNT - 1) % SetGrpCNT;
-  if (newkeys & KEY_BUTTR)
-    smenu.set.group = (smenu.set.group + 1) % SetGrpCNT;
-  if (newkeys & (KEY_BUTTUP | KEY_BUTTDOWN | KEY_BUTTL | KEY_BUTTR)) {
+  if (newkeys & (KEY_BUTTUP | KEY_BUTTDOWN)) {
     smenu.anim_state = 0;
     set_sync_selector();
   }
@@ -3563,40 +3528,39 @@ static void keypress_menu_tools(unsigned newkeys) {
   }
 }
 
+// Info tab: left/right switch the info panel, A toggles the temporary flashing permission.
 static void keypress_menu_info(unsigned newkeys) {
-  if (newkeys & KEY_BUTTA)
+  if (newkeys & KEY_BUTTRIGHT)
     smenu.info.selector = (smenu.info.selector + 1) % 4;
-}
-
-// Flashing page: the unlock is a button, only valid until the next boot.
-static void keypress_menu_flashpage(unsigned newkeys) {
+  if (newkeys & KEY_BUTTLEFT)
+    smenu.info.selector = (smenu.info.selector + 3) % 4;
   if (newkeys & KEY_BUTTA)
     enable_flashing = !enable_flashing;
 }
 
-
-static uint8_t sysmenu_last = 0;     // Last START menu entry used
-
-static void keypress_popup_sysmenu(unsigned newkeys) {
-  if (newkeys & KEY_BUTTUP)
-    spop.selector = MAX(0, spop.selector - 1);
-  if (newkeys & KEY_BUTTDOWN)
-    spop.selector = MIN(3, spop.selector + 1);
-  sysmenu_last = spop.selector;
-
-  if (newkeys & KEY_BUTTSTA)
+// The START window: L/R switch the tab, the keys of the tab go to the tab itself.
+static void keypress_popup_system(unsigned newkeys) {
+  if (newkeys & KEY_BUTTSTA) {
     spop.pop_num = POPUP_NONE;
-  else if (newkeys & KEY_BUTTA) {
-    if (spop.selector == 0) {
-      spop.pop_num = POPUP_SETTINGS;
-      spop.anim = 0;
-    } else {
-      spop.pop_num = (spop.selector == 1) ? POPUP_TOOLS :
-                     (spop.selector == 2) ? POPUP_INFO : POPUP_FLASH;
-      spop.anim = 0;
-      smenu.anim_state = 0;
-    }
+    return;
   }
+  if (newkeys & KEY_BUTTL)
+    smenu.sys_tab = (smenu.sys_tab + SysTabCNT - 1) % SysTabCNT;
+  if (newkeys & KEY_BUTTR)
+    smenu.sys_tab = (smenu.sys_tab + 1) % SysTabCNT;
+  if (newkeys & (KEY_BUTTL | KEY_BUTTR))
+    smenu.anim_state = 0;
+  newkeys &= ~(unsigned)(KEY_BUTTL | KEY_BUTTR);
+
+  if (smenu.sys_tab < SetGrpCNT) {
+    smenu.set.group = smenu.sys_tab;
+    set_sync_selector();
+    keypress_menu_settings(newkeys);
+  }
+  else if (smenu.sys_tab == SysTabTools)
+    keypress_menu_tools(newkeys);
+  else
+    keypress_menu_info(newkeys);
 }
 
 void menu_keypress(unsigned newkeys) {
@@ -3653,16 +3617,9 @@ void menu_keypress(unsigned newkeys) {
     if (subcnt > 1 && (newkeys & KEY_BUTTR))
       spop.submenu = (spop.submenu + 1) % subcnt;
 
-    // Close pop-up on B button (settings/tools/info go back to the START menu).
+    // Close pop-up on B button.
     if (newkeys & KEY_BUTTB) {
-      if (spop.pop_num == POPUP_SETTINGS || spop.pop_num == POPUP_TOOLS ||
-          spop.pop_num == POPUP_INFO || spop.pop_num == POPUP_FLASH) {
-        spop.selector = (spop.pop_num == POPUP_SETTINGS) ? 0 :
-                        (spop.pop_num == POPUP_TOOLS)    ? 1 :
-                        (spop.pop_num == POPUP_INFO)     ? 2 : 3;
-        spop.pop_num = POPUP_SYSMENU;
-      } else
-        spop.pop_num = POPUP_NONE;
+      spop.pop_num = POPUP_NONE;
     }
     else {
       const t_mkeyupd_fn keyfns[] = {
@@ -3675,11 +3632,7 @@ void menu_keypress(unsigned newkeys) {
         keypress_popup_norwrite,
         keypress_popup_norload,
         #endif
-        keypress_popup_sysmenu,
-        keypress_menu_settings,
-        keypress_menu_tools,
-        keypress_menu_info,
-        keypress_menu_flashpage,
+        keypress_popup_system,
       };
       keyfns[spop.pop_num](newkeys);
     }
@@ -3695,9 +3648,9 @@ void menu_keypress(unsigned newkeys) {
       smenu.menu_tab = game_tabs[cur];
     }
     if (newkeys & KEY_BUTTSTA) {
-      spop.pop_num = POPUP_SYSMENU;
-      spop.selector = sysmenu_last;      // Remember the last entry used
+      spop.pop_num = POPUP_SYSTEM;       // Opens in the last tab used
       spop.anim = 0;
+      smenu.anim_state = 0;
     }
 
     if (newkeys & (KEY_BUTTL | KEY_BUTTR | KEY_BUTTUP | KEY_BUTTDOWN))
