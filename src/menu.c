@@ -1087,6 +1087,49 @@ void start_emu_game(const t_emu_loader *ldinfo, const char *fn, uint32_t fs) {
   }
 }
 
+// Firmware (.fw) files: the user chooses between chain loading them (running them like a game,
+// nothing gets modified) and flashing them (needs the flashing unlock and the key combo).
+static char fwchoice_fn[MAX_FN_LEN];
+static uint32_t fwchoice_size;
+
+static void browser_open_fw_flash(const char *fn, uint32_t fs) {
+  // A SuperFW firmware update is selected!
+  if (!enable_flashing)
+    spop.alert_msg = msgs[lang_id][MSG_FWUP_DISABLED];
+  else if (fs > FW_MAX_SIZE_KB*1024 || (flashinfo.size && fs > flashinfo.size))
+    spop.alert_msg = msgs[lang_id][MSG_FWUP_ERRSZ];
+  else {
+    // Read the header and perform some more basic checks!
+    FIL fd;
+    FRESULT res = f_open(&fd, fn, FA_READ);
+    if (res != FR_OK)
+      spop.alert_msg = msgs[lang_id][MSG_FWUP_ERRRD];
+    else {
+      UINT rdbytes;
+      uint8_t tmp[512];
+      if (FR_OK != f_read(&fd, tmp, sizeof(tmp), &rdbytes) || rdbytes != sizeof(tmp))
+        spop.alert_msg = msgs[lang_id][MSG_FWUP_ERRRD];
+      else if (!validate_gba_header(tmp))  // Is it a valid GBA ROM header?
+        spop.alert_msg = msgs[lang_id][MSG_FWUP_BADHD];
+      else {
+        spop.p.update.issfw = check_superfw(tmp, &spop.p.update.superfw_ver);
+        spop.p.update.fw_size = fs;
+        spop.p.update.curr_state = FlashingReady;
+        spop.pop_num = POPUP_FWFLASH;
+        strbcpy(spop.p.update.fn, fn, sizeof(spop.p.update.fn));
+      }
+      f_close(&fd);
+    }
+  }
+}
+
+static void fwchoice_callback(bool flash) {
+  if (flash)
+    browser_open_fw_flash(fwchoice_fn, fwchoice_size);
+  else
+    browser_open_gba(fwchoice_fn, fwchoice_size, true);    // Chain load
+}
+
 NOINLINE static void browser_open(const char *fn, uint32_t fs) {
   const char *ext = find_extension(fn);
   if (ext && !strcasecmp(ext, "gba"))
@@ -1098,34 +1141,15 @@ NOINLINE static void browser_open(const char *fn, uint32_t fs) {
     strbcpy(spop.p.savopt.savfn, fn, sizeof(spop.p.savopt.savfn));
   }
   else if (ext && !strcasecmp(ext, "fw")) {
-    // A SuperFW firmware update is selected!
-    if (!enable_flashing)
-      spop.alert_msg = msgs[lang_id][MSG_FWUP_DISABLED];
-    else if (fs > FW_MAX_SIZE_KB*1024 || (flashinfo.size && fs > flashinfo.size))
-      spop.alert_msg = msgs[lang_id][MSG_FWUP_ERRSZ];
-    else {
-      // Read the header and perform some more basic checks!
-      FIL fd;
-      FRESULT res = f_open(&fd, fn, FA_READ);
-      if (res != FR_OK)
-        spop.alert_msg = msgs[lang_id][MSG_FWUP_ERRRD];
-      else {
-        UINT rdbytes;
-        uint8_t tmp[512];
-        if (FR_OK != f_read(&fd, tmp, sizeof(tmp), &rdbytes) || rdbytes != sizeof(tmp))
-          spop.alert_msg = msgs[lang_id][MSG_FWUP_ERRRD];
-        else if (!validate_gba_header(tmp))  // Is it a valid GBA ROM header?
-          spop.alert_msg = msgs[lang_id][MSG_FWUP_BADHD];
-        else {
-          spop.p.update.issfw = check_superfw(tmp, &spop.p.update.superfw_ver);
-          spop.p.update.fw_size = fs;
-          spop.p.update.curr_state = FlashingReady;
-          spop.pop_num = POPUP_FWFLASH;
-          strbcpy(spop.p.update.fn, fn, sizeof(spop.p.update.fn));
-          f_close(&fd);
-        }
-      }
-    }
+    // Ask what to do with it: chain load (default button) or flash.
+    strbcpy(fwchoice_fn, fn, sizeof(fwchoice_fn));
+    fwchoice_size = fs;
+    spop.qpop.message = msgs[lang_id][MSG_FWCH_Q];
+    spop.qpop.default_button = msgs[lang_id][MSG_FWCH_RUN];
+    spop.qpop.confirm_button = msgs[lang_id][MSG_FWCH_FLASH];
+    spop.qpop.option = 0;
+    spop.qpop.callback = fwchoice_callback;
+    spop.qpop.clear_popup_ok = false;
   }
   else {
     // Any emulator-based console supported
@@ -1424,15 +1448,26 @@ static void draw_central_text_wrapped(const char *t, volatile uint8_t *frame, un
   while (*t) {
     char tmp[128];
     unsigned outw;
-    unsigned linechars = font_width_cap_space(t, maxw, &outw);
-    unsigned charcnt = linechars ?: utf8_strlen(t);
-    uint8_t *basept = (uint8_t*)&frame[y * SCREEN_WIDTH + x - outw / 2];
+    unsigned charcnt = font_width_cap_space(t, maxw, &outw);
+    const bool nobreak = !charcnt;          // No space to break at (chinese): break anywhere
+    if (nobreak) {
+      charcnt = font_width_cap(t, maxw);
+      if (!charcnt)
+        charcnt = utf8_chlen(t);
+    }
+    if (charcnt > sizeof(tmp) - 1)
+      charcnt = sizeof(tmp) - 1;
 
     memcpy(tmp, t, charcnt);
     tmp[charcnt] = 0;
+    if (nobreak)
+      outw = font_width(tmp);
+    uint8_t *basept = (uint8_t*)&frame[y * SCREEN_WIDTH + x - outw / 2];
     draw_text_idx8_bus16(tmp, basept, SCREEN_WIDTH, FT_COLOR);
 
     t += charcnt;      // Advance text
+    while (*t == ' ')
+      t++;
     y += 16;           // Move down in the buffer
   }
 }

@@ -223,6 +223,9 @@ en_strings = [
   "MSG_FWUPD_CHECKING": "Checking image ...",
   "MSG_FWUPD_ERASING":  "Erasing flash ...",
   "MSG_FWUPD_PROGRAM":  "Programming firmware ...",
+  "MSG_FWCH_Q":     "This is a firmware file. Chain load runs it like a game and changes nothing. Flash writes it to the cart (risky).",
+  "MSG_FWCH_RUN":   "Chain load",
+  "MSG_FWCH_FLASH": "Flash",
   "MSG_FWUP_DISABLED": "Flashing is disabled! Allow it in START > Info",            # alertmsg
   "MSG_FWUPD_DONE":    "Flash update complete!",           # alertmsg
   "MSG_FLASH_READOK": "Flash dump successful!",            # alertmsg
