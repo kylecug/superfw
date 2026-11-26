@@ -411,6 +411,8 @@ START_ARM_FUNC(gba_irq_handler)
 
 #define _APPACK_HWORD_VERSION
 #include "unpack.S"
+// Needed so the (Thumb) C code gets a proper interworking call to this ARM routine.
+.type apunpack16, %function
 
 .pool
 
