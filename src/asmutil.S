@@ -409,3 +409,8 @@ START_ARM_FUNC(gba_irq_handler)
 
 #include "upkrunpack16.S"
 
+#define _APPACK_HWORD_VERSION
+#include "unpack.S"
+
+.pool
+

@@ -214,6 +214,8 @@
     "MSG_NOR_CLOK": "成功擦除NOR!",
     "MSG_TOOLS5_FCLR": "擦除NOR",
     "MSG_UIS_BHID": "显示隐藏文件",
+    "MSG_UIS_FONT": "字体大小",
+    "MSG_UIS_FONTI": "重启后生效",
     "MSG_UIS_SPD0": "非常慢",
     "MSG_UIS_SPD1": "慢",
     "MSG_UIS_SPD2": "常规",

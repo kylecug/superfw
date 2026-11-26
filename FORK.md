@@ -1,7 +1,7 @@
 # SuperFW 中文增强分支（0.22.x）
 
 这是 [davidgfnet/superfw](https://github.com/davidgfnet/superfw)（Supercard 的开源固件）的一个分支，
-基于上游 **v0.22**，版本号显示为 **0.22 Long v2**（上游版本号不变，后面加的是本分支的名字 Long 和自己的版本号）。
+基于上游 **v0.22**，版本号显示为 **0.22 Long v4**（上游版本号不变，后面加的是本分支的名字 Long 和自己的版本号）。
 
 主要目标：中文使用更顺手（字体、菜单、金手指匹配），并把菜单操作整理得更统一。
 **目前只编译和使用 Supercard SuperChis 版本（`chis`）**，`sd` / `lite` 版本没有编译，也没有测试。
@@ -21,19 +21,24 @@
   - 设置窗口里 L / R 不再切换页面，只用方向键左右修改数值；底部是当前项的说明（过长会滚动）。
   - "保存"按钮同时写入 `settings.txt` 和 `ui-settings.txt`。
   - 信息页的固件更新解锁组合键（下 + B + START）保持不变，窗口里同样有效。
-- 信息页显示 `Version 0.22 Long v2`。名字和版本号在 `Makefile` 的 `CUSTOM_NAME` 和 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
+- 信息页显示 `Version 0.22 Long v4`。名字和版本号在 `Makefile` 的 `CUSTOM_NAME` 和 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
 
 ### 字体
 
-- 汉字和英文改用 [Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font) 10px 点阵字体（SIL OFL 1.1）。
-  汉字 10×10，比原来的 16×16 窄 37.5%；英文改成比例字体。（0.22.1 用的是 12px 版本。）
-- 字体包：`res/fonts.pack`（Lite/SD 版）443 KB；`res/fonts-ext.pack`（SuperChis 版实际使用的那个，多了预组合的韩文音节）794 KB。
-  **注意**：0.22.1 只更新了 `fonts.pack`，而 SuperChis 版编译时用的是 `fonts-ext.pack`（Makefile 里的 `FONTS_EXT`），
-  所以 0.22.1 的 SuperChis 固件里汉字其实还是原来的 16 像素，只有英文变成了 12px。0.22.2 起两个字库都已更新。
-- 10px 版本的汉字覆盖比 12px 少：GB2312 一级字（3755 个常用字）全部有，二级字约 87% 有，
-  CJK 统一表意文字区共 10.7k 个（12px 版是 19.5k）。没有的字显示空心方框。繁体和日文版补充。
-- 文件列表行高从 16 像素改成 12 像素，一页显示 11 行（原来 8 行）。底栏高度从 16 改成 12 像素。
-  选中条由两排 16×8 的精灵拼成。
+- 汉字和英文改用 [Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font) 点阵字体（SIL OFL 1.1），
+  **12px 和 10px 两种大小都内置，在"设置"里的"字体大小"选择，重启后生效**（默认 12px）。
+  - 12px：汉字 12×12，比原来的 16×16 窄 25%。文件列表行高 14 像素，一页 9 行（原来 8 行）。
+  - 10px：汉字 10×10，窄 37.5%。文件列表行高 12 像素，一页 11 行，底栏缩到 12 像素。
+    覆盖的汉字比 12px 少：GB2312 一级字（3755 个常用字）全部有，二级字约 87% 有，
+    CJK 统一表意文字区共 10.7k 个（12px 版是 19.5k）。没有的字显示空心方框。
+  - 12px 字库不压缩，开机时直接复制到内存；10px 字库用 apultra 压缩后作为资源（`FNT1`）放进固件，
+    选了 10px 后开机时再解压覆盖。设置保存在 `ui-settings.txt` 的 `font_size`（0 = 12px，1 = 10px）。
+  - SuperChis 版固件里 ROM 资源区在 0x190000 之前，字库和模拟器都放在这里，所以第二套字库必须压缩。
+- 字体包：`res/fonts-ext.pack`（12px）和 `res/fonts-ext-10px.pack`（10px）是 SuperChis 版实际使用的，多了预组合的韩文音节；
+  `res/fonts.pack`（12px，Lite/SD 版）没有编译测试。**注意**：0.22.1 只更新了 `fonts.pack`，
+  而 SuperChis 版编译时用的是 `fonts-ext.pack`（Makefile 里的 `FONTS_EXT`），所以 0.22.1 的 SuperChis 固件里
+  汉字其实还是原来的 16 像素。0.22 Long v2 起 SuperChis 用的字库已更新。
+- 英文（ASCII）字形现在放在字库里（跟随字体大小），固件内置的 12px 英文字库只作为后备。
 - 文件列表的图标改成 12 行高（16×12），并新增了 Game Gear、SG-1000、Super Vision、Neo Geo Pocket、
   Neo Geo Pocket Color、PC Engine 六种平台的图标（原来显示为通用文件图标）。图标按扩展名识别。
 - 韩文、俄文、希腊文、带音标的拉丁字母仍使用原来的 16 像素字体。

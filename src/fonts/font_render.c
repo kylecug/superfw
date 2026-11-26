@@ -62,9 +62,10 @@ typedef struct {
 // Looks up block info for a character code.
 static bool lookup_chptr(uint32_t code, t_char_render_info *chinfo) {
   // Add here any font database pointers as you wish, they are looked up in order.
+  // The font pack goes first: it has the glyphs (ASCII included) for the selected size.
   const void *font_dblist[] = {
-    font_ascii_embedded,
     font_base_addr,
+    font_ascii_embedded,
   };
 
   for (unsigned j = 0; j < sizeof(font_dblist)/sizeof(font_dblist[0]); j++) {

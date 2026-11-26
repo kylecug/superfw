@@ -82,19 +82,34 @@ enum {
   POPUP_INFO,                  // Info / about in a pop-up window
 };
 
-// File lists: 14 pixel rows (12 pixel glyphs), between the 16 pixel tab bar and the 16 pixel footer.
-#define LIST_Y0                     17
-#define LIST_ROWH                   14
-#define LIST_FOOTER_Y              144   // Footer bar, 16 pixels tall (17 + 9 * 14 = 143)
-#define LIST_FOOTER_H               16
-#define LIST_FOOTER_TXT_Y          144   // Text is drawn at the top of a 16 pixel cell
-#define BROWSER_ROWS                 9
-#define RECENT_ROWS                  9
-#define NORGAMES_ROWS                9
-// Top of a list row, and Y position for text/icons (glyphs are 12 pixels, icons 12 rows, both are
-// stored in 16 pixel cells with a 2 pixel margin: the cell starts 1 pixel above the row).
+// File list layout, it depends on the selected font size (see ui_font_init).
+// Glyphs and icons live in 16 pixel cells (glyphs are 12 or 10 pixels tall, icons 12 rows tall),
+// so the cell starts a few pixels above the row (cell_dy) to center them.
+typedef struct {
+  uint8_t y0;            // Top of the first row (below the 16 pixel tab bar)
+  uint8_t rowh;          // Row height
+  uint8_t rows;          // Rows per page
+  uint8_t footer_y;      // Footer bar position and height
+  uint8_t footer_h;
+  uint8_t footer_txt_y;  // Footer text Y position (top of the 16 pixel cell)
+  uint8_t cell_dy;       // Row top - cell top
+} t_list_layout;
+
+static const t_list_layout list_layout_12 = { 17, 14,  9, 144, 16, 144, 1 };   // 12px font
+static const t_list_layout list_layout_10 = { 16, 12, 11, 148, 12, 146, 2 };   // 10px font
+static t_list_layout lay = { 17, 14,  9, 144, 16, 144, 1 };
+
+#define LIST_Y0                    (lay.y0)
+#define LIST_ROWH                  (lay.rowh)
+#define LIST_FOOTER_Y              (lay.footer_y)
+#define LIST_FOOTER_H              (lay.footer_h)
+#define LIST_FOOTER_TXT_Y          (lay.footer_txt_y)
+#define BROWSER_ROWS               (lay.rows)
+#define RECENT_ROWS                (lay.rows)
+#define NORGAMES_ROWS              (lay.rows)
+// Top of a list row, and Y position for text/icons.
 #define LIST_ROW_Y(i)         (LIST_Y0 + (i) * LIST_ROWH)
-#define LIST_CELL_Y(i)        (LIST_ROW_Y(i) - 1)
+#define LIST_CELL_Y(i)        (LIST_ROW_Y(i) - lay.cell_dy)
 
 // First entries reserved for the logo palette.
 #define FG_COLOR         16
@@ -151,6 +166,9 @@ enum {
   SettUiTheme,
   SettUiLang,
   SettUiASpd,
+  #ifdef BUNDLE_FONT10
+  SettUiFont,
+  #endif
   SettUiHid,
   SettSave,
   SettMAX
@@ -2025,6 +2043,13 @@ static int settings_row(unsigned idx, const char **label, const char **value, ch
     npf_snprintf(vb, vbsz, "< %s >", msgs[lang_id][MSG_UIS_SPD0 + anim_speed]);
     *value = vb;
     break;
+  #ifdef BUNDLE_FONT10
+  case SettUiFont:
+    *label = msgs[lang_id][MSG_UIS_FONT];
+    npf_snprintf(vb, vbsz, "< %upx >", font_size ? 10U : 12U);
+    *value = vb;
+    break;
+  #endif
   case SettUiHid:
     *label = msgs[lang_id][MSG_UIS_BHID];
     *value = msgs[lang_id][hide_hidden ? MSG_KNOB_DISABLED : MSG_KNOB_ENABLED];
@@ -2060,6 +2085,9 @@ static const char *settings_help(char *tmp, unsigned tmpsz) {
                       sel == DefsLoadPol  ? MSG_DEF_LOADP_I0 + (autoload_default ^ 1) :
                       sel == DefsSavePol  ? MSG_DEF_SAVEP_I0 + (autosave_default ^ 1) :
                       sel == DefsPrefDS   ? MSG_LOADER_PREFDSI :
+                      #ifdef BUNDLE_FONT10
+                      sel == SettUiFont   ? MSG_UIS_FONTI :
+                      #endif
                       #ifdef SUPPORT_NORGAMES
                       sel == SettVerifyNOR ? MSG_VERNOR_I :
                       #endif
@@ -2328,7 +2356,28 @@ void menu_flip() {
   framen ^= 1;
 }
 
+// Applies the font size setting: the 12px font pack is the one copied to SDRAM at boot,
+// the 10px one is bundled compressed (as the FNT1 asset) and gets unpacked over it.
+// Changing the setting takes effect on the next boot.
+static void ui_font_init() {
+  lay = list_layout_12;
+  #ifdef BUNDLE_FONT10
+  if (font_size) {
+    set_supercard_mode(MAPPED_SDRAM, true, false);
+    const void *src = get_vfile_ptr("FNT1");
+    if (src)
+      apunpack16((const uint8_t*)src, (uint8_t*)ROM_FONTBASE_U8);
+    set_supercard_mode(MAPPED_SDRAM, true, true);
+    if (src)
+      lay = list_layout_10;
+  }
+  #endif
+}
+
 void menu_init(int sram_testres) {
+  // Pick the font (and the list layout that goes with it) before drawing anything.
+  ui_font_init();
+
   // Reset to ROM browser and SD card root.
   memset(&smenu, 0, sizeof(smenu));
   memset(&spop, 0, sizeof(spop));
@@ -3255,6 +3304,10 @@ static void keypress_menu_settings(unsigned newkeys) {
       hide_hidden ^= 1;
       browser_reload_filter();
     }
+    #ifdef BUNDLE_FONT10
+    else if (smenu.set.selector == SettUiFont)
+      font_size ^= 1;
+    #endif
     else if (smenu.set.selector == SettBootType)
       boot_bios_splash ^= 1;
     else if (smenu.set.selector == SettCheatEn)

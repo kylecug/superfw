@@ -83,6 +83,7 @@ uint8_t menu_theme = 0;
 uint8_t lang_id = 0;
 uint8_t recent_menu = 1;   // Always on (the recent tab is no longer optional)
 uint8_t hide_hidden = 0;
+uint8_t font_size = 0;
 uint8_t anim_speed = animspd_cnt / 2;
 
 // Default settings
@@ -128,8 +129,9 @@ bool save_ui_settings() {
     "theme=%u\n"
     "langcode=%c%c\n"
     "anim_speed=%u\n"
-    "hide_hidden=%u\n",
-    menu_theme, (lc & 0xFF), (lc >> 8), anim_speed, hide_hidden);
+    "hide_hidden=%u\n"
+    "font_size=%u\n",
+    menu_theme, (lc & 0xFF), (lc >> 8), anim_speed, hide_hidden, font_size);
 
   UINT wrbytes;
   FRESULT res = f_write(&fd, buf, strlen(buf), &wrbytes);
@@ -241,6 +243,7 @@ static void parse_ui_settings(void *usr, const char *var, const char *value) {
       { "theme",       &menu_theme,  THEME_COUNT },
       { "hide_hidden", &hide_hidden, 2 },
       { "anim_speed",  &anim_speed,  animspd_cnt },
+      { "font_size",   &font_size,   2 },
     };
     unsigned valu = parseuint(value);
     for (unsigned i = 0; i < sizeof(uintset)/sizeof(uintset[0]); i++)

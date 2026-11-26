@@ -756,6 +756,15 @@ assets_start:
   .balign 4
   #endif
 
+  #ifdef BUNDLE_FONT10
+  .ascii "FNT1"                                        @ Alternative (10px) font pack, apultra compressed
+  .word (font10_end - font10_start)
+  font10_start:
+    .incbin "res/fonts-ext-10px.pack.comp"
+  font10_end:
+  .balign 4
+  #endif
+
   .word 0               @ End of asset list
   .word 0
 assets_end:

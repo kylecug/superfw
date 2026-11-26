@@ -2,7 +2,7 @@
 VERSION_WORD := 0x00000016
 # Fork name and revision, shown after the upstream version (upstream 0.22 -> "0.22 Long v3"). Display only.
 CUSTOM_NAME := Long
-CUSTOM_VERSION := 3
+CUSTOM_VERSION := 4
 VERSION_SLUG_WORD := $(shell git rev-parse --short=8 HEAD || echo FFFFFFFF)
 
 PREFIX		:= arm-none-eabi-
@@ -30,7 +30,9 @@ else ifeq ($(BOARD),sd)
   MAXFSIZE = 512
   FWFLAVOUR = "SD"
 else ifeq ($(BOARD),chis)
-  GLOBAL_DEFINES += -DSUPPORT_NORGAMES -DSUPERCHIS_IO -DFONTS_EXT
+  GLOBAL_DEFINES += -DSUPPORT_NORGAMES -DSUPERCHIS_IO -DFONTS_EXT -DBUNDLE_FONT10
+  # Second (smaller) font, compressed, picked in the settings (see rom_boot.S)
+  BIFONTFILES = res/fonts-ext-10px.pack.comp
   BUNDLE_GBC_EMULATOR = 1
   BUNDLE_OTHER_EMULATORS = 1
   # Can't be over 2MiB (hardlimit)
@@ -168,7 +170,7 @@ INFILES=src/gba_ewram_crt0.S \
         src/fonts/font_render.c \
         ${FATFSFILES}
 
-all:	$(FWBINFILES) $(BIEMUFILES) directsave.payload ingame_trampoline.payload
+all:	$(FWBINFILES) $(BIEMUFILES) $(BIFONTFILES) directsave.payload ingame_trampoline.payload
 	# Wrap the firmware around a ROM->EWRAM loader
 	$(CC) $(CFLAGS) -o firmware.elf rom_boot.S -T ldscripts/gba_romboot.ld -nostartfiles -nostdlib -Wl,--defsym,MAX_FLASH_SIZE=$(MAXFSIZE)K
 	$(OBJCOPY) --output-target=binary firmware.elf superfw.gba

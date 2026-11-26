@@ -72,6 +72,7 @@ extern uint8_t menu_theme;
 extern uint8_t lang_id;
 extern uint8_t recent_menu;
 extern uint8_t hide_hidden;
+extern uint8_t font_size;      // 0: 12px font (default), 1: 10px font (applied on boot)
 extern uint8_t anim_speed;
 
 // Defaults/Settings
