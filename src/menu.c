@@ -2901,6 +2901,9 @@ void menu_render(unsigned fcnt) {
 
   render_toast(frame);
   update_effects();
+
+  // Other code (boot messages, fatal errors) draws text without the clip
+  font_row_mask = 0xFFFF;
 }
 
 void menu_flip() {
