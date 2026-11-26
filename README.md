@@ -1,6 +1,9 @@
 
-> **中文增强分支**：这是 SuperFW 的一个分支（版本 0.22.1，只针对 SuperChis），改了字体、菜单操作和金手指匹配，
-> 说明见 [FORK.md](FORK.md)。
+> **中文增强分支**：这是 SuperFW 的一个非官方分支（"Long" 版本，只针对 SuperChis），改了字体、菜单操作、主题和金手指匹配，
+> 说明见 [FORK.md](FORK.md)。许可见 [LICENSE](LICENSE)（GPL-3.0-or-later），第三方组件见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+>
+> **免责声明**：本项目与上游作者、Supercard 及其他硬件厂商无关。刷写固件有风险，断电、选错或损坏的文件可能使卡带无法启动
+> （需要 NDS + 烧录卡才能恢复），请自行承担风险。软件按"原样"提供，不提供任何担保（GPL-3.0 第 15、16 条）。
 
 SuperFW
 =======

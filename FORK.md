@@ -120,9 +120,22 @@ make BOARD=chis COMPRESSION_RATIO=10
 - 游戏加载窗口（信息 / 加载设置 / 补丁）仍然用 L / R 切换子页，没有改动。
 - 非中文语言里新增的几条文字（标签、"START/Menu"）暂时是英文。
 
+## 免责声明
+
+- 本项目是**非官方**的个人分支，与上游 SuperFW 作者、Supercard 及其他硬件厂商无关。
+- 固件刷写有风险：刷写时断电、选错固件或文件损坏，都可能使卡带无法启动（变砖），需要用 NDS + Slot-1 烧录卡才能恢复。
+  使用者自行承担全部风险。请先用"链式运行"试用，确认好用再刷写。
+- 软件按"原样"提供，不提供任何明示或暗示的担保，作者不对使用它造成的任何损失负责（GPL-3.0 第 15、16 条）。
+- 本项目不提供、也不鼓励获取受版权保护的游戏 ROM。
+- 发布包里的汉化金手指、内置的模拟器，其授权情况见 [THIRD_PARTY.md](THIRD_PARTY.md)（其中有几项我**没能确认**许可）。
+  如果你是原作者并且不希望被收录，请到 [Issues](https://github.com/kylecug/superfw/issues) 告诉我，我会处理。
+
 ## 许可与致谢
 
-- SuperFW 由 David Guillen Fandos 开发，GPL-3.0，本分支沿用同一许可。上游项目：<https://github.com/davidgfnet/superfw>
+- 本分支沿用上游的许可：**GPL-3.0-or-later**，完整文本见 [LICENSE](LICENSE)（上游仓库自己没有放这个文件，源码文件头写的是 GPL v3 或更高版本）。
+  每个 Release 对应的源码就是同名 tag，例如 `v0.22-long10`。
+- 所有第三方组件（字体、模拟器、金手指、FatFs 等）的许可和核对情况见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+- SuperFW 由 David Guillen Fandos 开发，本分支沿用同一许可。上游项目：<https://github.com/davidgfnet/superfw>
 - 字体：Fusion Pixel Font（TakWolf），SIL Open Font License 1.1，见 `res/fonts/LICENSE-fusion-pixel-OFL.txt`。
   其中包含 Ark Pixel、Cubic 11、Galmuri 等字体的成分，授权见该字体发布包。
 - 原有字体：Unscii（viznut）和 GNU Unifont，见 `res/fonts/README.md`。
