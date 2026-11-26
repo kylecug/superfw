@@ -1,7 +1,7 @@
 # SuperFW 中文增强分支（0.22.x）
 
 这是 [davidgfnet/superfw](https://github.com/davidgfnet/superfw)（Supercard 的开源固件）的一个分支，
-基于上游 **v0.22**，版本号显示为 **0.22 Long v4**（上游版本号不变，后面加的是本分支的名字 Long 和自己的版本号）。
+基于上游 **v0.22**，版本号显示为 **0.22 Long v5**（上游版本号不变，后面加的是本分支的名字 Long 和自己的版本号）。
 
 主要目标：中文使用更顺手（字体、菜单、金手指匹配），并把菜单操作整理得更统一。
 **目前只编译和使用 Supercard SuperChis 版本（`chis`）**，`sd` / `lite` 版本没有编译，也没有测试。
@@ -21,7 +21,7 @@
   - 设置窗口里 L / R 不再切换页面，只用方向键左右修改数值；底部是当前项的说明（过长会滚动）。
   - "保存"按钮同时写入 `settings.txt` 和 `ui-settings.txt`。
   - 信息页的固件更新解锁组合键（下 + B + START）保持不变，窗口里同样有效。
-- 信息页显示 `Version 0.22 Long v4`。名字和版本号在 `Makefile` 的 `CUSTOM_NAME` 和 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
+- 信息页显示 `Version 0.22 Long v5`。名字和版本号在 `Makefile` 的 `CUSTOM_NAME` 和 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
 
 ### 字体
 
@@ -33,6 +33,8 @@
     CJK 统一表意文字区共 10.7k 个（12px 版是 19.5k）。没有的字显示空心方框。
   - 12px 字库不压缩，开机时直接复制到内存；10px 字库用 apultra 压缩后作为资源（`FNT1`）放进固件，
     选了 10px 后开机时再解压覆盖。设置保存在 `ui-settings.txt` 的 `font_size`（0 = 12px，1 = 10px）。
+  - **安全启动**：开机时按住 **SELECT** 键，本次忽略保存的字体设置，用默认的 12px 启动。
+    万一 10px 设置导致无法启动，不用拔卡改文件。进设置保存一次，就会把默认值写回去。
   - SuperChis 版固件里 ROM 资源区在 0x190000 之前，字库和模拟器都放在这里，所以第二套字库必须压缩。
 - 字体包：`res/fonts-ext.pack`（12px）和 `res/fonts-ext-10px.pack`（10px）是 SuperChis 版实际使用的，多了预组合的韩文音节；
   `res/fonts.pack`（12px，Lite/SD 版）没有编译测试。**注意**：0.22.1 只更新了 `fonts.pack`，

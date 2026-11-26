@@ -2362,6 +2362,11 @@ void menu_flip() {
 static void ui_font_init() {
   lay = list_layout_12;
   #ifdef BUNDLE_FONT10
+  // Safe boot: holding SELECT while powering on ignores the saved font size (12px is used), so a
+  // bad setting can never lock the device out. Saving the settings writes the default back.
+  if (font_size && (curr_pressed_keys() & KEY_BUTTSEL))
+    font_size = 0;
+
   if (font_size) {
     set_supercard_mode(MAPPED_SDRAM, true, false);
     const void *src = get_vfile_ptr("FNT1");
