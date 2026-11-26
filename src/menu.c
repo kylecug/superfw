@@ -108,6 +108,51 @@ static t_list_layout lay = { 17, 14,  9, 144, 16, 144, 1 };
 #define LIST_ROW_Y(i)         (LIST_Y0 + (i) * LIST_ROWH)
 #define LIST_CELL_Y(i)        (LIST_ROW_Y(i) - lay.cell_dy)
 
+// ---- UI animations ---------------------------------------------------------------------------
+// Positions are kept in 1/16 pixels and glide towards their target a bit every frame (ease out).
+typedef struct { int cur, tgt; } t_anim;
+
+static unsigned anim_frames = 1;                   // Frames since the last render (the animations advance by this)
+static int clip_y0 = 0, clip_y1 = SCREEN_HEIGHT;   // Vertical clip of fill_rect and the text helpers
+
+static void anim_snap(t_anim *a, int v) {
+  a->cur = a->tgt = v;
+}
+
+static void anim_to(t_anim *a, int v) {
+  a->tgt = v;
+  if (!ui_anim)
+    a->cur = v;
+}
+
+static void anim_step(t_anim *a) {
+  for (unsigned f = 0; f < anim_frames && a->cur != a->tgt; f++) {
+    const int d = a->tgt - a->cur;
+    if (d > -24 && d < 24)
+      a->cur = a->tgt;
+    else
+      a->cur += (d * 5) / 16;
+  }
+}
+
+// Masks the glyph rows that fall out of the clip rectangle (a glyph cell is 16 rows tall).
+static inline void clip_text(int y) {
+  uint16_t m = 0xFFFF;
+  if (y < clip_y0 || y + 16 > clip_y1) {
+    m = 0;
+    for (int j = 0; j < 16; j++)
+      if (y + j >= clip_y0 && y + j < clip_y1)
+        m |= 1U << j;
+  }
+  font_row_mask = m;
+}
+
+// Selection bar and scroll position of the three file lists (recent, browser, NOR).
+static struct {
+  t_anim sel, scr;      // In list space (entry * row height * 16)
+  bool valid;           // False: jump to the targets (page switch, list reloaded)
+} listanim[3];
+
 // First entries reserved for the logo palette.
 #define FG_COLOR         16
 #define BG_COLOR         17
@@ -166,6 +211,9 @@ enum {
   SettUiFont,
   #endif
   SettUiHid,
+  SettUiAnim,
+  SettUiFx,
+  SettUiSound,
   SettSave,
   SettMAX
 };
@@ -173,6 +221,7 @@ enum {
 // The settings window shows the settings split in groups (L/R switch between them).
 enum {
   SetGrpUI,
+  SetGrpFx,
   SetGrpSys,
   SetGrpSave,
   SetGrpGame,
@@ -1053,6 +1102,7 @@ static bool delete_recent_flush(unsigned entry_num) {
 }
 
 static void recent_reload() {
+  listanim[MENUTAB_RECENT].valid = false;
   smenu.recent.selector = 0;
   smenu.recent.seloff = 0;
   smenu.anim_state = 0;
@@ -1228,12 +1278,17 @@ static void browser_reload_filter() {
     smenu.browser.selector = fcount - 1;
   smenu.browser.seloff = MAX(0, smenu.browser.selector - BROWSER_ROWS / 2);
   smenu.browser.dispentries = fcount;
+  listanim[MENUTAB_ROMBROWSE].valid = false;
 }
 
 // Loads a new directory list in the ROM browser.
 // TODO: Implement filtering (.gba/.rom/.bin... etc) using settings
+static void show_loading(void);
+
 static void browser_reload() {
   smenu.anim_state = 0;
+  if (smenu.browser.filecount > 100)
+    show_loading();      // Reading a big directory takes a moment
 
   unsigned fcount = 0;
   DIR d;
@@ -1267,6 +1322,7 @@ static void browser_reload() {
 // Loads NOR game entries so they can be browsed.
 static void flashbrowser_reload() {
   #ifdef SUPPORT_NORGAMES
+  listanim[MENUTAB_NORBROWSE].valid = false;
   smenu.fbrowser.selector = 0;
   smenu.anim_state = 0;
 
@@ -1301,7 +1357,7 @@ static inline void render_icon_trans(unsigned x, unsigned y, unsigned iconn) {
 // 16x8 sprites per column (tile 63 is a solid color block). Only the top-most
 // object pixel gets blended, so the overlap does not get blended twice.
 #define OBJ_SHAPE_WIDE   0x4000       // Shape 1 (16x8 with size 0), kept in the Y word
-static void render_list_selector(unsigned rowtop) {
+static void render_list_selector(int rowtop) {
   for (unsigned i = 0; i < SCREEN_WIDTH; i += 16) {
     fobjs[objnum++] = (t_oamobj){i, rowtop | 0x0400 | OBJ_SHAPE_WIDE, 8*63 };
     fobjs[objnum++] = (t_oamobj){i, (rowtop + LIST_ROWH - 8) | 0x0400 | OBJ_SHAPE_WIDE, 8*63 };
@@ -1341,6 +1397,7 @@ static unsigned guessicon(const char *path) {
 // Draws text adding some support for overflow.
 #define THREEDOTS_WIDTH  9
 static void draw_text_ovf(const char *t, volatile uint8_t *frame, unsigned x, unsigned y, unsigned maxw) {
+  clip_text((int)y);
   uint8_t *basept = (uint8_t*)&frame[y * SCREEN_WIDTH + x];
   unsigned twidth = font_width(t);
   if (twidth <= maxw)
@@ -1355,6 +1412,7 @@ static void draw_text_ovf(const char *t, volatile uint8_t *frame, unsigned x, un
 }
 
 static void draw_text_leftovf(const char *t, volatile uint8_t *frame, unsigned x, unsigned y, unsigned maxw) {
+  clip_text((int)y);
   uint8_t *basept = (uint8_t*)&frame[y * SCREEN_WIDTH + x];
   unsigned numchars = font_width_lcap(t, maxw - THREEDOTS_WIDTH);
   if (numchars) {
@@ -1366,6 +1424,7 @@ static void draw_text_leftovf(const char *t, volatile uint8_t *frame, unsigned x
 }
 
 static void draw_text_ovf_rotate(const char *t, volatile uint8_t *frame, unsigned x, unsigned y, unsigned maxw, unsigned *franim) {
+  clip_text((int)y);
   uint8_t *basept = (uint8_t*)&frame[y * SCREEN_WIDTH + x];
   unsigned twidth = font_width(t);
   if (twidth <= maxw)
@@ -1418,18 +1477,21 @@ static void draw_button_box(
 
 
 static void draw_rightj_text(const char *t, volatile uint8_t *frame, unsigned x, unsigned y) {
+  clip_text((int)y);
   unsigned twidth = font_width(t);
   uint8_t *basept = (uint8_t*)&frame[y * SCREEN_WIDTH + x - twidth];
   draw_text_idx8_bus16(t, basept, SCREEN_WIDTH, FT_COLOR);
 }
 
 static void draw_central_text(const char *t, volatile uint8_t *frame, unsigned x, unsigned y) {
+  clip_text((int)y);
   unsigned twidth = font_width(t);
   uint8_t *basept = (uint8_t*)&frame[y * SCREEN_WIDTH + x - twidth / 2];
   draw_text_idx8_bus16(t, basept, SCREEN_WIDTH, FT_COLOR);
 }
 
 static void draw_central_text_ovf(const char *t, volatile uint8_t *frame, unsigned x, unsigned y, unsigned maxw) {
+  clip_text((int)y);
   unsigned twidth = font_width(t);
   if (twidth <= maxw) {
     uint8_t *basept = (uint8_t*)&frame[y * SCREEN_WIDTH + x - twidth / 2];
@@ -1448,6 +1510,7 @@ static void draw_central_text_wrapped(const char *t, volatile uint8_t *frame, un
   while (*t) {
     char tmp[128];
     unsigned outw;
+    clip_text((int)y);
     unsigned charcnt = font_width_cap_space(t, maxw, &outw);
     const bool nobreak = !charcnt;          // No space to break at (chinese): break anywhere
     if (nobreak) {
@@ -1495,8 +1558,22 @@ static void draw_central_text_wrapped(const char *t, volatile uint8_t *frame, un
 #define CW_ROWW     (CW_RIGHT - SYS_LEFT - 8)   // Row width
 
 static void fill_rect(volatile uint8_t *frame, unsigned x, unsigned y, unsigned w, unsigned h, uint8_t color) {
-  for (unsigned r = 0; r < h; r++)
-    dma_memset16(&frame[(y + r) * SCREEN_WIDTH + x], dup8(color), w / 2);
+  for (unsigned r = 0; r < h; r++) {
+    const int yy = (int)(y + r);
+    if (yy >= clip_y0 && yy < clip_y1)
+      dma_memset16(&frame[(unsigned)yy * SCREEN_WIDTH + x], dup8(color), w / 2);
+  }
+}
+
+// A box made of rectangles (so it follows the clip rectangle): 2 pixel outline, optional filling.
+static void box_clipped(volatile uint8_t *frame, unsigned left, unsigned right, int top, int bottom,
+                        uint8_t outline, int fill /* -1: transparent */) {
+  fill_rect(frame, left, top, right - left, 2, outline);
+  fill_rect(frame, left, bottom - 2, right - left, 2, outline);
+  fill_rect(frame, left, top + 2, 2, bottom - top - 4, outline);
+  fill_rect(frame, right - 2, top + 2, 2, bottom - top - 4, outline);
+  if (fill >= 0)
+    fill_rect(frame, left + 2, top + 2, right - left - 4, bottom - top - 4, fill);
 }
 
 static void draw_rightj_ovf(const char *t, volatile uint8_t *frame, unsigned xr, unsigned y, unsigned maxw) {
@@ -1506,138 +1583,218 @@ static void draw_rightj_ovf(const char *t, volatile uint8_t *frame, unsigned xr,
     draw_text_ovf(t, frame, xr - maxw, y, maxw);
 }
 
-static void draw_corner_window(volatile uint8_t *frame, unsigned left, unsigned top) {
-  draw_box_full(frame, left, CW_RIGHT, top, CW_BOTTOM, FG_COLOR, BG_COLOR);
+// ---- File lists ---------------------------------------------------------------------------------
+#define LIST_SCROLL_W   4        // Space reserved on the right for the scroll bar
+
+static unsigned tabbar_end = 100;   // X where the page tabs end (set by render_tabbar)
+
+// Draws one row: top is the Y of the row, inside tells if it is fully visible (sprites can not be clipped)
+typedef void (*t_row_fn)(volatile uint8_t *frame, int idx, int top, bool sel, bool inside, unsigned sbw);
+
+// Renders the visible rows of a list, with a selection bar that glides to the selected row and
+// rows that glide when the list scrolls.
+static void render_list(volatile uint8_t *frame, unsigned tab, int selector, int seloff, int total, t_row_fn rowfn) {
+  static unsigned last_tab = 0xFF;
+  const int rh16 = LIST_ROWH * 16;
+  const int rows = lay.rows;
+  const int list_bot = LIST_Y0 + rows * LIST_ROWH;
+  const unsigned sbw = total > rows ? LIST_SCROLL_W : 0;
+
+  if (!listanim[tab].valid || tab != last_tab) {
+    anim_snap(&listanim[tab].sel, selector * rh16);
+    anim_snap(&listanim[tab].scr, seloff * rh16);
+    listanim[tab].valid = true;
+  } else {
+    anim_to(&listanim[tab].sel, selector * rh16);
+    anim_to(&listanim[tab].scr, seloff * rh16);
+    anim_step(&listanim[tab].sel);
+    anim_step(&listanim[tab].scr);
+  }
+  last_tab = tab;
+
+  const int scr16 = listanim[tab].scr.cur;
+  const int base = scr16 / rh16;                 // First (maybe partially) visible entry
+  const int frac = (scr16 % rh16) / 16;          // Pixels the list is scrolled up by
+
+  clip_y0 = LIST_Y0;
+  clip_y1 = list_bot;
+  for (int k = 0; k <= rows; k++) {
+    const int idx = base + k;
+    if (idx >= total)
+      break;
+    const int top = LIST_Y0 + k * LIST_ROWH - frac;
+    rowfn(frame, idx, top, idx == selector, top >= LIST_Y0 && top + LIST_ROWH <= list_bot, sbw);
+  }
+  clip_y0 = 0;
+  clip_y1 = SCREEN_HEIGHT;
+
+  // Selection bar
+  int sy = LIST_Y0 + (listanim[tab].sel.cur - scr16) / 16;
+  if (sy < LIST_Y0)
+    sy = LIST_Y0;
+  if (sy > list_bot - LIST_ROWH)
+    sy = list_bot - LIST_ROWH;
+  render_list_selector(sy);
+
+  // Scroll bar
+  if (sbw) {
+    const int track = rows * LIST_ROWH;
+    int th = track * rows / total;
+    if (th < 8)
+      th = 8;
+    const int maxscr16 = (total - rows) * rh16;
+    int pos = maxscr16 > 0 ? (track - th) * scr16 / maxscr16 : 0;
+    if (pos < 0)
+      pos = 0;
+    if (pos > track - th)
+      pos = track - th;
+    fill_rect(frame, SCREEN_WIDTH - 4, LIST_Y0, 2, track, FG_COLOR);
+    fill_rect(frame, SCREEN_WIDTH - 4, LIST_Y0 + pos, 2, th, HI_COLOR);
+  }
 }
 
-// One row of a window list: label on the left, optional value on the right.
-static void cw_row(volatile uint8_t *frame, unsigned left, unsigned width, unsigned y, bool sel,
-                   const char *label, const char *value) {
-  fill_rect(frame, left + 2, y, width, CW_ROWH - 2, sel ? HI_COLOR : BG_COLOR);
-  const unsigned tx = left + 6;
-  const unsigned xr = left + 2 + width - 4;
-  const unsigned vw = value ? MIN(font_width(value), 104U) : 0;
-  const unsigned lw = xr - tx - (vw ? vw + 4 : 0);
-  draw_text_ovf(label, frame, tx, y - 2, lw);
-  if (value)
-    draw_rightj_ovf(value, frame, xr, y - 2, vw);
+static void recent_row(volatile uint8_t *frame, int idx, int top, bool sel, bool inside, unsigned sbw) {
+  t_rentry *e = &sdr_state->rentries[idx];
+  char *fn = &e->fpath[e->fname_offset];
+  const int ty = top - lay.cell_dy;
+  if (inside)
+    render_icon(2, ty, guessicon(fn));
+  if (sel)
+    draw_text_ovf_rotate(fn, frame, 20, ty, SCREEN_WIDTH - 24 - sbw, &smenu.anim_state);
+  else
+    draw_text_ovf(fn, frame, 20, ty, SCREEN_WIDTH - 24 - sbw);
+}
+
+static void browser_row(volatile uint8_t *frame, int idx, int top, bool sel, bool inside, unsigned sbw) {
+  char szstr[16] = {0};
+  t_centry *e = sdr_state->filefilter[idx];
+  const int ty = top - lay.cell_dy;
+
+  unsigned iconidx = ishidden(e)        ? ((e->attr & AM_DIR) ? ICON_HFOLDER : ICON_HFILE) :
+                     (e->attr & AM_DIR) ? ICON_FOLDER :
+                     guessicon(e->fname);
+  if (inside)
+    render_icon(2, ty, iconidx);
+
+  if (!(e->attr & AM_DIR)) {
+    human_size(szstr, sizeof(szstr), e->filesize);
+    draw_rightj_text(szstr, frame, SCREEN_WIDTH - 2 - sbw, ty);
+  }
+
+  // Animate the row entries if they are too long!
+  if (sel)
+    draw_text_ovf_rotate(e->fname, frame, 20, ty, SCREEN_WIDTH - 26 - sbw - font_width(szstr), &smenu.anim_state);
+  else
+    draw_text_ovf(e->fname, frame, 20, ty, SCREEN_WIDTH - 26 - sbw - font_width(szstr));
+}
+
+#ifdef SUPPORT_NORGAMES
+static void nor_row(volatile uint8_t *frame, int idx, int top, bool sel, bool inside, unsigned sbw) {
+  const t_flash_game_entry *e = &sdr_state->nordata.games[idx];
+  const int ty = top - lay.cell_dy;
+  if (inside)
+    render_icon(2, ty, ICON_GBACART);
+
+  char szstr[16];
+  human_size(szstr, sizeof(szstr), e->numblks * NOR_BLOCK_SIZE);
+  draw_rightj_text(szstr, frame, SCREEN_WIDTH - 2 - sbw, ty);
+
+  const char *romname = &e->game_name[e->bnoffset];
+  if (sel)
+    draw_text_ovf_rotate(romname, frame, 20, ty, SCREEN_WIDTH - 26 - sbw - font_width(szstr), &smenu.anim_state);
+  else
+    draw_text_ovf(romname, frame, 20, ty, SCREEN_WIDTH - 26 - sbw - font_width(szstr));
+}
+#endif
+
+// A (drawn) folder and two lines of text, for lists without entries.
+static void draw_empty_state(volatile uint8_t *frame, const char *line1, const char *line2) {
+  const unsigned cx = SCREEN_WIDTH / 2;
+  fill_rect(frame, cx - 16, 44, 14, 6, FG_COLOR);
+  fill_rect(frame, cx - 16, 48, 32, 24, FG_COLOR);
+  fill_rect(frame, cx - 16, 56, 32, 16, HI_COLOR);
+  draw_central_text_ovf(line1, frame, cx, 78, SCREEN_WIDTH - 24);
+  draw_central_text_ovf(line2, frame, cx, 94, SCREEN_WIDTH - 24);
+}
+
+// Bottom bar: name of the selected entry on the left (scrolls if it is too long), key hints on the right.
+static void render_list_footer(volatile uint8_t *frame, const char *name, unsigned hint_msg) {
+  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
+  const char *hint = msgs[lang_id][hint_msg];
+  const unsigned hw = font_width(hint);
+  draw_rightj_text(hint, frame, SCREEN_WIDTH - 4, LIST_FOOTER_TXT_Y);
+  if (name)
+    draw_text_ovf_rotate(name, frame, 6, LIST_FOOTER_TXT_Y, SCREEN_WIDTH - 20 - hw, &smenu.anim_state);
+}
+
+// Top bar, right of the tabs: some text (path, NOR usage) and the position in the list.
+static void render_topbar_info(volatile uint8_t *frame, const char *left, const char *counter) {
+  const unsigned cw = counter ? font_width(counter) : 0;
+  if (counter)
+    draw_rightj_text(counter, frame, SCREEN_WIDTH - 4, 0);
+  if (left) {
+    const unsigned x0 = tabbar_end + 6;
+    const unsigned used = x0 + cw + (cw ? 10 : 4);
+    if (SCREEN_WIDTH > used + 24)
+      draw_text_leftovf(left, frame, x0, 0, SCREEN_WIDTH - used);
+  }
 }
 
 void render_recent(volatile uint8_t *frame) {
-  // Footer bar (the START hint is drawn on top of it)
-  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
+  const int total = smenu.recent.maxentries;
+  const char *name = NULL;
+  char cnt[16] = "";
 
-  // Render the list from memory.
-  for (unsigned i = 0; i < RECENT_ROWS; i++) {
-    if (smenu.recent.seloff + i >= smenu.recent.maxentries)
-      break;
-
-    t_rentry *e = &sdr_state->rentries[smenu.recent.seloff + i];
-    char *fn = &e->fpath[e->fname_offset];
-    render_icon(2, LIST_CELL_Y(i), guessicon(fn));
-
-    // Animate the row entries if they are too long!
-    if (i == smenu.recent.selector - smenu.recent.seloff)
-      draw_text_ovf_rotate(fn, frame, 20, LIST_CELL_Y(i),
-                           SCREEN_WIDTH - 24, &smenu.anim_state);
-    else
-      draw_text_ovf(fn, frame, 20, LIST_CELL_Y(i), SCREEN_WIDTH - 24);
+  if (!total)
+    draw_empty_state(frame, msgs[lang_id][MSG_EMPTY_RECENT], msgs[lang_id][MSG_EMPTY_H_RECENT]);
+  else {
+    render_list(frame, MENUTAB_RECENT, smenu.recent.selector, smenu.recent.seloff, total, recent_row);
+    const t_rentry *e = &sdr_state->rentries[smenu.recent.selector];
+    name = &e->fpath[e->fname_offset];
+    npf_snprintf(cnt, sizeof(cnt), "%d/%d", smenu.recent.selector + 1, total);
   }
-
-  if (!smenu.recent.maxentries) {
-    draw_central_text(msgs[lang_id][MSG_BROW_EMPTY], frame, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-8);
-    return;
-  }
-
-  render_list_selector(LIST_ROW_Y(smenu.recent.selector - smenu.recent.seloff));
+  render_list_footer(frame, name, MSG_HINT_RECENT);
+  render_topbar_info(frame, NULL, cnt[0] ? cnt : NULL);
 }
 
 #ifdef SUPPORT_NORGAMES
 void render_flashbrowser(volatile uint8_t *frame) {
-  // Render bar below to show block info
-  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
+  const int total = smenu.fbrowser.maxentries;
+  const char *name = NULL;
+  char cnt[16] = "";
 
-  // Render the list from memory.
-  if (!smenu.fbrowser.maxentries)
-    draw_central_text(msgs[lang_id][MSG_NOR_EMPTY], frame, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-8);
+  if (!total)
+    draw_empty_state(frame, msgs[lang_id][MSG_NOR_EMPTY], msgs[lang_id][MSG_EMPTY_H_NOR]);
   else {
-    for (unsigned i = 0; i < NORGAMES_ROWS; i++) {
-      if (smenu.fbrowser.seloff + i >= smenu.fbrowser.maxentries)
-        break;
-
-      const t_flash_game_entry *e = &sdr_state->nordata.games[smenu.fbrowser.seloff + i];
-      render_icon(2, LIST_CELL_Y(i), ICON_GBACART);
-
-      // Animate the row entries if they are too long!
-      char szstr[16];
-      human_size(szstr, sizeof(szstr), e->numblks * NOR_BLOCK_SIZE);
-      draw_rightj_text(szstr, frame, SCREEN_WIDTH - 2, LIST_CELL_Y(i));
-
-      // Animate the row entries if they are too long!
-      const char *romname = &e->game_name[e->bnoffset];
-      if (i == smenu.fbrowser.selector - smenu.fbrowser.seloff)
-        draw_text_ovf_rotate(romname, frame, 20, LIST_CELL_Y(i),
-                             SCREEN_WIDTH - 26 - font_width(szstr), &smenu.anim_state);
-      else
-        draw_text_ovf(romname, frame, 20, LIST_CELL_Y(i), SCREEN_WIDTH - 26 - font_width(szstr));
-    }
-
-    render_list_selector(LIST_ROW_Y(smenu.fbrowser.selector - smenu.fbrowser.seloff));
+    render_list(frame, MENUTAB_NORBROWSE, smenu.fbrowser.selector, smenu.fbrowser.seloff, total, nor_row);
+    const t_flash_game_entry *e = &sdr_state->nordata.games[smenu.fbrowser.selector];
+    name = &e->game_name[e->bnoffset];
+    npf_snprintf(cnt, sizeof(cnt), "%d/%d", smenu.fbrowser.selector + 1, total);
   }
+  render_list_footer(frame, name, MSG_HINT_NOR);
 
-  char tmp[32], tmp1[32], tmp2[32];
-  npf_snprintf(tmp, sizeof(tmp), "%u/%d", smenu.fbrowser.selector + 1, smenu.fbrowser.maxentries);
-  draw_rightj_text(tmp, frame, SCREEN_WIDTH - 1, 1);
-
+  char tmp[40], tmp1[16], tmp2[16];
   human_size(tmp1, sizeof(tmp1), smenu.fbrowser.usedblks * NOR_BLOCK_SIZE);
   human_size(tmp2, sizeof(tmp2), NOR_GAMEBLOCK_COUNT * NOR_BLOCK_SIZE);
   npf_snprintf(tmp, sizeof(tmp), "NOR %s/%s", tmp1, tmp2);
-  draw_text_ovf(tmp, frame, 8, LIST_FOOTER_TXT_Y, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
+  render_topbar_info(frame, tmp, cnt[0] ? cnt : NULL);
 }
 #endif
 
 void render_browser(volatile uint8_t *frame) {
-  // Render bar below to show path URI
-  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
+  const int total = smenu.browser.dispentries;
+  const char *name = NULL;
+  char cnt[16] = "";
 
-  if (!smenu.browser.dispentries)
-    draw_central_text(msgs[lang_id][MSG_BROW_EMPTY], frame, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-8);
+  if (!total)
+    draw_empty_state(frame, msgs[lang_id][MSG_BROW_EMPTY], msgs[lang_id][MSG_EMPTY_H_DIR]);
   else {
-    for (unsigned i = 0; i < BROWSER_ROWS; i++) {
-      if (smenu.browser.seloff + i >= smenu.browser.dispentries)
-        break;
-
-      char szstr[16] = {0};
-      t_centry *e = sdr_state->filefilter[smenu.browser.seloff + i];
-
-      unsigned iconidx = ishidden(e)        ? ((e->attr & AM_DIR) ? ICON_HFOLDER : ICON_HFILE) :
-                         (e->attr & AM_DIR) ? ICON_FOLDER :
-                         guessicon(e->fname);
-
-      render_icon(2, LIST_CELL_Y(i), iconidx);
-
-      if (!(e->attr & AM_DIR)) {
-        human_size(szstr, sizeof(szstr), e->filesize);
-        draw_rightj_text(szstr, frame, SCREEN_WIDTH - 2, LIST_CELL_Y(i));
-      }
-
-      // Animate the row entries if they are too long!
-      if (i == smenu.browser.selector - smenu.browser.seloff)
-        draw_text_ovf_rotate(e->fname, frame, 20, LIST_CELL_Y(i),
-                             SCREEN_WIDTH - 26 - font_width(szstr), &smenu.anim_state);
-      else
-        draw_text_ovf(e->fname, frame, 20, LIST_CELL_Y(i), SCREEN_WIDTH - 26 - font_width(szstr));
-    }
-
-    render_list_selector(LIST_ROW_Y(smenu.browser.selector - smenu.browser.seloff));
+    render_list(frame, MENUTAB_ROMBROWSE, smenu.browser.selector, smenu.browser.seloff, total, browser_row);
+    name = sdr_state->filefilter[smenu.browser.selector]->fname;
+    npf_snprintf(cnt, sizeof(cnt), "%d/%d", smenu.browser.selector + 1, total);
   }
-
-  // Draw path, cut left part if necessary.
-  draw_text_leftovf(smenu.browser.cpath, frame, 8, LIST_FOOTER_TXT_Y, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
-
-  char selinfo[16];
-  npf_snprintf(selinfo, sizeof(selinfo), "%u/%d", smenu.browser.selector + 1, smenu.browser.dispentries);
-  draw_rightj_text(selinfo, frame, SCREEN_WIDTH - 1, 1);
+  render_list_footer(frame, name, MSG_HINT_BROWSE);
+  render_topbar_info(frame, smenu.browser.cpath, cnt[0] ? cnt : NULL);
 }
 
 void render_fw_flash_popup(volatile uint8_t *frame) {
@@ -1922,6 +2079,7 @@ void render_popupq(volatile uint8_t *frame, unsigned fcnt) {
 
   draw_central_text(spop.qpop.default_button, frame, 120, 92);
   draw_central_text(spop.qpop.confirm_button, frame, 120, 122);
+  draw_central_text(msgs[lang_id][MSG_HINT_Q], frame, 120, 142);
 }
 
 void render_rtcpop(volatile uint8_t *frame) {
@@ -1954,11 +2112,12 @@ void render_rtcpop(volatile uint8_t *frame) {
 
 // Settings of each group, in order (the save button is always the last row of every group).
 static const uint8_t set_groups[SetGrpCNT][8] = {
-  { SettUiTheme, SettUiLang, SettUiASpd,
+  { SettUiTheme, SettUiLang,
     #ifdef BUNDLE_FONT10
     SettUiFont,
     #endif
     SettUiHid, 0xFF },
+  { SettUiASpd, SettUiAnim, SettUiFx, SettUiSound, 0xFF },
   { SettHotkey, SettBootType, SettFastSD,
     #ifdef SUPPORT_NORGAMES
     SettVerifyNOR,
@@ -1973,7 +2132,7 @@ static const uint8_t set_groups[SetGrpCNT][8] = {
 };
 
 static const uint16_t set_group_msgs[SetGrpCNT] = {
-  MSG_SETG_UI, MSG_SETG_SYS, MSG_SETG_SAVE, MSG_SETG_GAME,
+  MSG_SETG_UI, MSG_SETG_FX, MSG_SETG_SYS, MSG_SETG_SAVE, MSG_SETG_GAME,
 };
 
 // Number of settings in a group (without the save button).
@@ -2122,6 +2281,19 @@ static int settings_row(unsigned idx, const char **label, const char **value, ch
     *value = vb;
     break;
   #endif
+  case SettUiAnim:
+    *label = msgs[lang_id][MSG_UIS_ANIM];
+    *value = msgs[lang_id][ui_anim ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED];
+    break;
+  case SettUiFx:
+    *label = msgs[lang_id][MSG_UIS_FX];
+    *value = msgs[lang_id][ui_fx ? MSG_KNOB_ENABLED : MSG_KNOB_DISABLED];
+    break;
+  case SettUiSound:
+    *label = msgs[lang_id][MSG_UIS_SOUND];
+    npf_snprintf(vb, vbsz, "< %s >", msgs[lang_id][MSG_SND_0 + ui_sound]);
+    *value = vb;
+    break;
   case SettUiHid:
     *label = msgs[lang_id][MSG_UIS_BHID];
     *value = msgs[lang_id][hide_hidden ? MSG_KNOB_DISABLED : MSG_KNOB_ENABLED];
@@ -2182,6 +2354,7 @@ static void draw_text_wrapped_left(const char *t, volatile uint8_t *frame, unsig
       break;
     memcpy(tmp, t, n);
     tmp[n] = 0;
+    clip_text((int)y);
     draw_text_idx8_bus16(tmp, (uint8_t*)&frame[y * SCREEN_WIDTH + x], SCREEN_WIDTH, FT_COLOR);
     t += n;
     while (*t == ' ')
@@ -2190,7 +2363,7 @@ static void draw_text_wrapped_left(const char *t, volatile uint8_t *frame, unsig
   }
 }
 
-// Tabs of the START window: the four settings groups, then tools and info.
+// Tabs of the START window: the five settings groups, then tools and info.
 enum {
   SysTabTools = SetGrpCNT,
   SysTabInfo,
@@ -2198,34 +2371,99 @@ enum {
 };
 
 static const uint16_t sys_tab_msgs[SysTabCNT] = {
-  MSG_SETG_UI, MSG_SETG_SYS, MSG_SETG_SAVE, MSG_SETG_GAME, MSG_SYS_TOOLS, MSG_SYS_INFO,
+  MSG_SETG_UI, MSG_SETG_FX, MSG_SETG_SYS, MSG_SETG_SAVE, MSG_SETG_GAME, MSG_SYS_TOOLS, MSG_SYS_INFO,
 };
+
+#define SYS_WIN_H   (CW_BOTTOM - SW_TOP + 2)    // Height of the window, it slides up from the bottom of the screen
+
+static int sys_dy;                                              // Vertical offset while the window slides
+static t_anim win_slide = { SYS_WIN_H * 16, SYS_WIN_H * 16 };   // Closed at the start
+static t_anim tab_hl_x, tab_hl_w;                               // Highlight of the current tab
+static t_anim row_hl_y;                                         // Highlight bar of the selected row
+static uint8_t sys_hl_tab = 0xFF;                               // Tab the row highlight belongs to
+static uint8_t sys_last_tab = 0xFF;
+
+// The text of a row, drawn on top of the (moving) highlight bar.
+static void sys_row_text(volatile uint8_t *frame, int y, const char *label, const char *value, unsigned reserve) {
+  const unsigned tx = SYS_LEFT + 6;
+  const unsigned xr = SYS_LEFT + 2 + CW_ROWW - 4;
+  const unsigned vw = value ? MIN(font_width(value), 104U) : 0;
+  const unsigned lw = xr - tx - (vw ? vw + 4 : 0) - reserve;
+  draw_text_ovf(label, frame, tx, y + sys_dy - 2, lw);
+  if (value)
+    draw_rightj_ovf(value, frame, xr, y + sys_dy - 2, vw);
+}
+
+// A toggle switch (the knob is on the right when it is on) whose right edge is at xr.
+static void sys_switch(volatile uint8_t *frame, int xr, int y, bool on) {
+  const int w = 20, h = 10, x = xr - w, yy = y + sys_dy + 1;
+  fill_rect(frame, x, yy, w, h, FT_COLOR);
+  if (!on)
+    fill_rect(frame, x + 2, yy + 2, w - 4, h - 4, BG_COLOR);
+  fill_rect(frame, on ? x + w - 8 : x + 2, yy + 2, 6, h - 4, on ? BG_COLOR : FT_COLOR);
+}
+
+// A slider with max notches (value 0..max-1) whose right edge is at xr.
+static void sys_slider(volatile uint8_t *frame, int xr, int y, unsigned val, unsigned max) {
+  const int sp = 12, w = (int)(max - 1) * sp + 6, x = xr - w, yy = y + sys_dy;
+  fill_rect(frame, x, yy + 5, w, 2, FT_COLOR);
+  for (unsigned i = 0; i < max; i++)
+    fill_rect(frame, x + (int)i * sp + 2, yy + 3, 2, 6, FT_COLOR);
+  fill_rect(frame, x + (int)val * sp, yy + 1, 6, 10, FT_COLOR);
+}
+
+// Moves the highlight bar to row sel (rows are CW_ROWH apart) and draws it.
+static void sys_highlight(volatile uint8_t *frame, unsigned tab, unsigned sel) {
+  if (sys_hl_tab != tab) {
+    anim_snap(&row_hl_y, sel * CW_ROWH * 16);
+    sys_hl_tab = tab;
+  } else {
+    anim_to(&row_hl_y, sel * CW_ROWH * 16);
+    anim_step(&row_hl_y);
+  }
+  fill_rect(frame, SYS_LEFT + 2, SW_ROW0Y + sys_dy + row_hl_y.cur / 16, CW_ROWW, CW_ROWH - 2, HI_COLOR);
+}
 
 // Rows of a settings group, each group fits without scrolling.
 static void render_sys_settings(volatile uint8_t *frame, unsigned grp) {
   const unsigned total = set_group_len(grp) + 1;
+  const char *labels[8], *values[8];
+  char vbs[8][48];
+  int kinds[8];
+
+  // Backgrounds first (the save button is a bar), then the highlight, then the texts
   for (unsigned i = 0; i < total; i++) {
-    const unsigned y = SW_ROW0Y + i * CW_ROWH;
-    const bool sel = (i == smenu.set.idx[grp]);
-    const char *label, *value;
-    char vb[48];
-    const int kind = settings_row(set_row_id(grp, i), &label, &value, vb, sizeof(vb));
-    if (kind == 0)
-      cw_row(frame, SYS_LEFT, CW_ROWW, y, sel, label, value);
-    else {
-      // The save button is a centered "bar".
-      fill_rect(frame, SYS_LEFT + 2, y, CW_ROWW, CW_ROWH - 2, sel ? HI_COLOR : FG_COLOR);
-      draw_central_text(label, frame, SYS_CX, y - 2);
+    kinds[i] = settings_row(set_row_id(grp, i), &labels[i], &values[i], vbs[i], sizeof(vbs[i]));
+    fill_rect(frame, SYS_LEFT + 2, SW_ROW0Y + sys_dy + i * CW_ROWH, CW_ROWW, CW_ROWH - 2,
+              kinds[i] == 0 ? BG_COLOR : FG_COLOR);
+  }
+  sys_highlight(frame, grp, smenu.set.idx[grp]);
+
+  for (unsigned i = 0; i < total; i++) {
+    const int y = SW_ROW0Y + i * CW_ROWH;
+    const unsigned id = set_row_id(grp, i);
+    if (kinds[i] != 0) {
+      draw_central_text(labels[i], frame, SYS_CX, y + sys_dy - 2);     // Save button
     }
+    else if (id == SettUiASpd) {
+      sys_row_text(frame, y, labels[i], NULL, 64);
+      sys_slider(frame, SYS_LEFT + 2 + CW_ROWW - 6, y, anim_speed, animspd_cnt);
+    }
+    else if (values[i] == msgs[lang_id][MSG_KNOB_ENABLED] || values[i] == msgs[lang_id][MSG_KNOB_DISABLED]) {
+      sys_row_text(frame, y, labels[i], NULL, 30);
+      sys_switch(frame, SYS_LEFT + 2 + CW_ROWW - 6, y, values[i] == msgs[lang_id][MSG_KNOB_ENABLED]);
+    }
+    else
+      sys_row_text(frame, y, labels[i], values[i], 0);
   }
 
-  // Help bar at the bottom of the window (a hint about the tabs if there is no help text)
+  // Help bar at the bottom of the window (key hints if there is no help text)
   char tmp[128];
   const char *help = settings_help(tmp, sizeof(tmp));
   if (!help[0])
     help = msgs[lang_id][MSG_SETG_HINT];
-  fill_rect(frame, SYS_LEFT + 2, SW_HELPY, CW_RIGHT - SYS_LEFT - 4, 16, FG_COLOR);
-  draw_text_ovf_rotate(help, frame, SYS_LEFT + 6, SW_HELPY,
+  fill_rect(frame, SYS_LEFT + 2, SW_HELPY + sys_dy, CW_RIGHT - SYS_LEFT - 4, 16, FG_COLOR);
+  draw_text_ovf_rotate(help, frame, SYS_LEFT + 6, SW_HELPY + sys_dy,
                        CW_RIGHT - SYS_LEFT - 12, &smenu.anim_state);
 }
 
@@ -2274,35 +2512,51 @@ static void render_sys_info(volatile uint8_t *frame) {
   }
 
   // Page indicator on the first line
+  const int ty = SW_ROW0Y - 2 + sys_dy;
   char ind[16];
   npf_snprintf(ind, sizeof(ind), "< %u/4 >", smenu.info.selector + 1U);
-  draw_text_ovf(l0, frame, x, SW_ROW0Y - 2, maxw - font_width(ind) - 8);
-  draw_rightj_text(ind, frame, CW_RIGHT - 8, SW_ROW0Y - 2);
-  draw_text_ovf(l1, frame, x, SW_ROW0Y - 2 + 14, maxw);
-  draw_text_ovf(l2, frame, x, SW_ROW0Y - 2 + 28, maxw);
+  draw_text_ovf(l0, frame, x, ty, maxw - font_width(ind) - 8);
+  draw_rightj_text(ind, frame, CW_RIGHT - 8, ty);
+  draw_text_ovf(l1, frame, x, ty + 14, maxw);
+  draw_text_ovf(l2, frame, x, ty + 28, maxw);
 
   // Firmware flashing: a button that temporarily allows it (until the next boot), and the risks
-  const unsigned by = SW_ROW0Y + 46;
-  draw_button_box(frame, SYS_LEFT + 8, CW_RIGHT - 8, by, by + 20, !enable_flashing);
+  const int by = SW_ROW0Y + 46 + sys_dy;
+  box_clipped(frame, SYS_LEFT + 8, CW_RIGHT - 8, by, by + 20, FG_COLOR, enable_flashing ? (int)BG_COLOR : (int)HI_COLOR);
   draw_central_text_ovf(msgs[lang_id][enable_flashing ? MSG_FLASH_REVOKE : MSG_FLASH_ALLOW],
                         frame, SYS_CX, by + 2, CW_RIGHT - SYS_LEFT - 24);
   draw_text_wrapped_left(msgs[lang_id][MSG_FLASH_RISK], frame, x, by + 22, maxw, 14, 3);
 }
 
 static void render_sys_tools(volatile uint8_t *frame) {
-  const int sel = smenu.tools.selector;
-  for (int i = 0; i < (int)ToolsMAX; i++)
-    cw_row(frame, SYS_LEFT, CW_ROWW, SW_ROW0Y + i * CW_ROWH, i == sel,
-           msgs[lang_id][MSG_TOOLS0_SDRAM + i], NULL);
+  for (unsigned i = 0; i < ToolsMAX; i++)
+    fill_rect(frame, SYS_LEFT + 2, SW_ROW0Y + sys_dy + i * CW_ROWH, CW_ROWW, CW_ROWH - 2, BG_COLOR);
+  sys_highlight(frame, SysTabTools, smenu.tools.selector);
+  for (unsigned i = 0; i < ToolsMAX; i++)
+    sys_row_text(frame, SW_ROW0Y + i * CW_ROWH, msgs[lang_id][MSG_TOOLS0_SDRAM + i], NULL, 0);
+
+  fill_rect(frame, SYS_LEFT + 2, SW_HELPY + sys_dy, CW_RIGHT - SYS_LEFT - 4, 16, FG_COLOR);
+  draw_text_ovf(msgs[lang_id][MSG_HINT_TOOLS], frame, SYS_LEFT + 6, SW_HELPY + sys_dy, CW_RIGHT - SYS_LEFT - 12);
 }
 
-// The START window: tabs on top (L/R switch them), the content of the tab below.
+// The START window: tabs on top (L/R switch them), the content of the tab below. It slides up
+// when it opens and down when it closes, and the highlights glide.
 void render_system(volatile uint8_t *frame) {
-  draw_corner_window(frame, SYS_LEFT, SW_TOP);
+  anim_to(&win_slide, spop.pop_num == POPUP_SYSTEM ? 0 : SYS_WIN_H * 16);
+  anim_step(&win_slide);
+  sys_dy = win_slide.cur / 16;
+  if (sys_dy >= SYS_WIN_H) {
+    sys_dy = 0;
+    sys_hl_tab = 0xFF;       // The next opening starts with the highlights in place
+    sys_last_tab = 0xFF;
+    return;
+  }
+
+  box_clipped(frame, SYS_LEFT, CW_RIGHT, SW_TOP + sys_dy, CW_BOTTOM + sys_dy, FG_COLOR, BG_COLOR);
 
   // Tab bar, the tabs get narrower if the texts do not fit
   const unsigned cur = smenu.sys_tab;
-  unsigned w[SysTabCNT], sum = 0;
+  unsigned w[SysTabCNT], px[SysTabCNT], sum = 0;
   for (unsigned i = 0; i < SysTabCNT; i++) {
     w[i] = (font_width(msgs[lang_id][sys_tab_msgs[i]]) + 6 + 1) & ~1U;
     sum += w[i];
@@ -2314,10 +2568,23 @@ void render_system(volatile uint8_t *frame) {
 
   unsigned x = SYS_LEFT + 4;
   for (unsigned i = 0; i < SysTabCNT; i++) {
-    fill_rect(frame, x, SW_TAB_Y, w[i], SW_TAB_H - 2, i == cur ? HI_COLOR : FG_COLOR);
-    draw_text_ovf(msgs[lang_id][sys_tab_msgs[i]], frame, x + 3, SW_TAB_Y - 2, w[i] - 3);
+    px[i] = x;
+    fill_rect(frame, x, SW_TAB_Y + sys_dy, w[i], SW_TAB_H - 2, FG_COLOR);
     x += w[i] + 2;
   }
+  if (sys_last_tab == 0xFF) {
+    anim_snap(&tab_hl_x, px[cur] * 16);
+    anim_snap(&tab_hl_w, w[cur] * 16);
+  } else {
+    anim_to(&tab_hl_x, px[cur] * 16);
+    anim_to(&tab_hl_w, w[cur] * 16);
+    anim_step(&tab_hl_x);
+    anim_step(&tab_hl_w);
+  }
+  sys_last_tab = cur;
+  fill_rect(frame, (tab_hl_x.cur / 16) & ~1U, SW_TAB_Y + sys_dy, (tab_hl_w.cur / 16) & ~1U, SW_TAB_H - 2, HI_COLOR);
+  for (unsigned i = 0; i < SysTabCNT; i++)
+    draw_text_ovf(msgs[lang_id][sys_tab_msgs[i]], frame, px[i] + 3, SW_TAB_Y + sys_dy - 2, w[i] - 3);
 
   if (cur < SetGrpCNT)
     render_sys_settings(frame, cur);
@@ -2325,6 +2592,7 @@ void render_system(volatile uint8_t *frame) {
     render_sys_tools(frame);
   else
     render_sys_info(frame);
+  sys_dy = 0;
 }
 
 // Tabs that L/R cycle through. Settings, tools and info live in the START menu.
@@ -2356,11 +2624,165 @@ static void render_tabbar(volatile uint8_t *frame) {
     draw_text_ovf(t, frame, x + 4, 0, tw - 4);
     x += tw + 2;
   }
+  tabbar_end = x;
 }
 
-// START hint at the bottom right corner of the main pages.
-static void render_start_hint(volatile uint8_t *frame) {
-  draw_rightj_text(msgs[lang_id][MSG_START_HINT], frame, SCREEN_WIDTH - 6, LIST_FOOTER_TXT_Y);
+// ---- Effects: dim, fades, toast, button feedback ---------------------------------------------
+static bool menu_ready = false;         // The video is set up, the menu can be drawn at any time
+static uint8_t dim_level;               // Brightness decrease (REG_BLDY) applied outside of the windows
+static uint8_t press_flash;             // Frames left of the selection bar flash after pressing A
+static uint16_t fade_buf[512];          // Palette copy used by the fades
+static uint8_t fade_level;              // 16: black ... 0: normal (fade in when the menu starts)
+static const char *toast_msg;           // Message shown at the bottom, without blocking
+static int toast_timer;                 // Frames left
+#define TOAST_FRAMES    130
+
+static void show_toast(const char *msg) {
+  toast_msg = msg;
+  toast_timer = TOAST_FRAMES;
+}
+
+static void fade_capture(void) {
+  for (unsigned i = 0; i < 512; i++)
+    fade_buf[i] = MEM_PALETTE[i];
+}
+
+// Palette brightness: level 0 is the captured palette, 16 is black.
+static void fade_apply(unsigned level) {
+  const unsigned k = 16 - level;
+  for (unsigned i = 0; i < 512; i++) {
+    const unsigned c = fade_buf[i];
+    const unsigned r = ((c & 31) * k) >> 4;
+    const unsigned g = (((c >> 5) & 31) * k) >> 4;
+    const unsigned b = (((c >> 10) & 31) * k) >> 4;
+    MEM_PALETTE[i] = r | (g << 5) | (b << 10);
+  }
+}
+
+static void render_toast(volatile uint8_t *frame) {
+  if (!toast_msg)
+    return;
+  if (toast_timer <= 0) {
+    toast_msg = NULL;
+    return;
+  }
+  toast_timer -= (int)anim_frames;
+
+  int off = 0;      // Pixels below the final position (slides in and out)
+  if (ui_anim) {
+    if (toast_timer > TOAST_FRAMES - 8)
+      off = (toast_timer - (TOAST_FRAMES - 8)) * 3;
+    else if (toast_timer < 8)
+      off = (8 - toast_timer) * 3;
+  }
+  const int y = 138 + off;
+  box_clipped(frame, 20, 220, y, y + 18, FG_COLOR, HI_COLOR);
+  draw_central_text_ovf(toast_msg, frame, SCREEN_WIDTH / 2, y, 192);
+}
+
+// Updates the hardware effects once per frame: dim behind windows, selection bar flash, fade in.
+static void update_effects(void) {
+  // Dim the page behind the START window and the alert pop-ups (brightness effect, only applies
+  // outside of the windows, see REG_WINOUT).
+  const bool window = win_slide.cur < (SYS_WIN_H - 30) * 16 && !spop.qpop.message && !spop.rtcpop.callback &&
+                      !(spop.pop_num && spop.pop_num != POPUP_SYSTEM);
+  const unsigned target = (ui_fx && (spop.alert_msg || window)) ? 6 : 0;
+  if (!ui_anim)
+    dim_level = target;
+  else {
+    for (unsigned f = 0; f < anim_frames && dim_level != target; f++)
+      dim_level += dim_level < target ? 1 : -1;
+  }
+  REG_BLDY = dim_level;
+
+  // Fade in when the menu starts
+  if (fade_level) {
+    fade_level = fade_level > anim_frames ? fade_level - anim_frames : 0;
+    fade_apply(fade_level);
+  }
+  else {
+    // Selection bar flash when pressing A
+    MEM_PALETTE[256 + SEL_COLOR] = press_flash ? themes[menu_theme].hi_color : themes[menu_theme].hi_blend;
+  }
+  if (press_flash)
+    press_flash = press_flash > anim_frames ? press_flash - anim_frames : 0;
+}
+
+// Shows a "loading" message right away (for operations that block for a while).
+void menu_render(unsigned fcnt);
+void menu_flip();
+static void show_loading(void) {
+  if (!menu_ready)
+    return;
+  menu_render(0);
+  volatile uint8_t *frame = &MEM_VRAM_U8[0xA000*framen];
+  box_clipped(frame, 60, 180, 66, 94, FG_COLOR, HI_COLOR);
+  draw_central_text(msgs[lang_id][MSG_LOADING], frame, SCREEN_WIDTH / 2, 72);
+  menu_flip();
+}
+
+// ---- Navigation sounds ------------------------------------------------------------------------
+// Square wave (channel 2) tones, plus a noise click, with a few styles. Registers are written
+// directly, a sound is a few milliseconds long.
+enum { UiSndMove, UiSndOk, UiSndBack, UiSndTab };
+
+typedef struct {
+  uint16_t freq;     // Frequency register (2048 - 131072 / Hz), 0: noise click
+  uint8_t duty;      // 0: 12.5%, 1: 25%, 2: 50%, 3: 75%
+  uint8_t vol;       // Initial volume
+  uint8_t step;      // Envelope decay step time (1/64 s per step)
+  uint8_t len;       // Length data (sound lasts (64-len)/256 s), 0: until the envelope ends
+} t_snd;
+
+static const t_snd snd_tbl[3][4] = {
+  // Soft: round 50% square, low notes, slow decay
+  { {1849, 2, 6, 2, 0}, {1899, 2, 7, 3, 0}, {1825, 2, 6, 2, 0}, {1923, 2, 6, 2, 0} },
+  // Retro: thin pulse waves, high notes, fast decay (chiptune)
+  { {1923, 1, 8, 1, 0}, {1964, 1, 9, 1, 0}, {1881, 1, 8, 1, 0}, {1950, 1, 8, 1, 0} },
+  // Crisp: noise click for moving, very short high ticks for the rest
+  { {0, 0, 0, 0, 0},    {1985, 0, 9, 1, 58}, {1950, 0, 8, 1, 58}, {1964, 0, 8, 1, 58} },
+};
+
+static bool snd_on = false;
+static uint8_t snd_cool;      // Frames until the next sound is allowed
+
+static void ui_sound_stop(void) {
+  REG_SOUNDCNT_X = 0;
+  REG_SOUNDCNT_L = 0;
+  snd_on = false;
+}
+
+static void ui_beep(unsigned ev) {
+  if (!ui_sound || snd_cool)
+    return;
+  if (!snd_on) {
+    REG_SOUNDCNT_X = 0x80;      // Master enable
+    REG_SOUNDCNT_L = 0xFF77;    // All PSG channels, both sides, full volume
+    REG_SOUNDCNT_H = 0x0002;    // PSG at 100%
+    snd_on = true;
+  }
+  const t_snd *s = &snd_tbl[ui_sound - 1][ev];
+  if (!s->freq) {
+    REG_SOUND4CNT_L = (7 << 12) | (1 << 8) | 62;
+    REG_SOUND4CNT_H = 0x8000 | 0x4000 | (6 << 4) | 1;
+  } else {
+    REG_SOUND2CNT_L = (s->vol << 12) | (s->step << 8) | (s->duty << 6) | s->len;
+    REG_SOUND2CNT_H = 0x8000 | (s->len ? 0x4000 : 0) | s->freq;
+  }
+  snd_cool = 3;
+}
+
+// Called right before a game is launched: fade out and silence the interface sounds.
+void ui_launch_hook(void) {
+  ui_sound_stop();
+  if (!ui_fx)
+    return;
+  fade_capture();
+  for (unsigned l = 1; l <= 16; l++) {
+    const unsigned f = frame_count;
+    fade_apply(l);
+    for (unsigned guard = 0; frame_count == f && guard < 2000000; guard++);
+  }
 }
 
 void reload_theme(unsigned thnum) {
@@ -2400,8 +2822,11 @@ static const struct {
 // Renders the menu. Arg0 represents the frame count difference with the
 // previous rendered frame (for animations and similar stuff).
 void menu_render(unsigned fcnt) {
+  anim_frames = fcnt > 6 ? 6 : fcnt;
   objnum = 0;
   volatile uint8_t *frame = &MEM_VRAM_U8[0xA000*framen];
+  if (snd_cool)
+    snd_cool = snd_cool > anim_frames ? snd_cool - anim_frames : 0;
 
   // Render the tab menu on top (rows 0..15), highlighting the selected option
   dma_memset16(&frame[0], dup8(FG_COLOR), SCREEN_WIDTH*16/2);
@@ -2412,39 +2837,34 @@ void menu_render(unsigned fcnt) {
   // Render the main area
   dma_memset16(&frame[16*SCREEN_WIDTH], dup8(BG_COLOR), SCREEN_WIDTH*(SCREEN_HEIGHT-16) / 2);
 
+  const bool fullscreen = spop.pop_num && spop.pop_num != POPUP_SYSTEM;
   if (spop.qpop.message)
     render_popupq(frame, fcnt);
   else if (spop.rtcpop.callback)
     render_rtcpop(frame);
-  else {
-    const bool corner = spop.pop_num && popup_windows[spop.pop_num - 1].cleft;
-    if (spop.pop_num && !corner) {
-      popup_windows[spop.pop_num - 1].render(frame);
-      spop.anim += fcnt * animspd_lut[anim_speed];
-    } else {
-      static const t_mrender_fn renderfns[] = {
-        render_recent,
-        render_browser,
-        #ifdef SUPPORT_NORGAMES
-        render_flashbrowser,
-        #endif
-      };
-      renderfns[smenu.menu_tab](frame);
-      smenu.anim_state += fcnt * animspd_lut[anim_speed];
-      render_start_hint(frame);
+  else if (fullscreen) {
+    popup_windows[spop.pop_num - 1].render(frame);
+    spop.anim += fcnt * animspd_lut[anim_speed];
+  } else {
+    static const t_mrender_fn renderfns[] = {
+      render_recent,
+      render_browser,
+      #ifdef SUPPORT_NORGAMES
+      render_flashbrowser,
+      #endif
+    };
+    renderfns[smenu.menu_tab](frame);
+    smenu.anim_state += fcnt * animspd_lut[anim_speed];
 
-      // The START menu family is drawn as a window on top of the current page
-      if (corner) {
-        popup_windows[spop.pop_num - 1].render(frame);
-        spop.anim += fcnt * animspd_lut[anim_speed];
-      }
-    }
+    // The START window is drawn on top of the current page (it slides in and out)
+    render_system(frame);
   }
 
-  // Window 1 hides the page sprites (selection bars, icons) behind the corner window.
-  if (spop.pop_num && popup_windows[spop.pop_num - 1].cleft && !spop.qpop.message && !spop.rtcpop.callback) {
-    REG_WIN1H = CW_RIGHT | (popup_windows[spop.pop_num - 1].cleft << 8);
-    REG_WIN1V = CW_BOTTOM | (popup_windows[spop.pop_num - 1].ctop << 8);
+  // Window 1 hides the page sprites (selection bars, icons) behind the START window.
+  const int wtop = SW_TOP + win_slide.cur / 16;
+  if (wtop < SCREEN_HEIGHT - 2 && !spop.qpop.message && !spop.rtcpop.callback && !fullscreen) {
+    REG_WIN1H = CW_RIGHT | (SYS_LEFT << 8);
+    REG_WIN1V = CW_BOTTOM | (wtop << 8);
   } else {
     REG_WIN1H = 0;
     REG_WIN1V = 0;
@@ -2460,6 +2880,9 @@ void menu_render(unsigned fcnt) {
     REG_WIN0H = 0;
     REG_WIN0V = 0;
   }
+
+  render_toast(frame);
+  update_effects();
 }
 
 void menu_flip() {
@@ -2523,7 +2946,7 @@ void menu_init(int sram_testres) {
 
   // Further setup initial video regs. BG2 is setup in the bootloader already!
   REG_WININ  = 0x0404;     // Only BG2 is enabled in Win0 and Win1
-  REG_WINOUT = 0x0014;     // BG2 and OBJ enabled outside of Win0
+  REG_WINOUT = 0x0034;     // BG2 and OBJ enabled outside of Win0, with special effects (dim)
   REG_WIN0H = 0;
   REG_WIN0V = 0;
   REG_WIN1H = 0;
@@ -2531,7 +2954,8 @@ void menu_init(int sram_testres) {
   REG_DISPCNT |= 0x6000;   // Enable windows 0 and 1
 
   // Setup alpha blending for the selector knob
-  REG_BLDCNT = 0x1F40;
+  REG_BLDCNT = 0x1FC4;     // BG2 brightness decrease (dim behind windows), OBJ alpha as 2nd target
+  REG_BLDY = 0;
   REG_BLDALPHA = 0x0808;  // 50% alpha
 
   // If there's a test result to report, create a popup
@@ -2541,6 +2965,14 @@ void menu_init(int sram_testres) {
 
   // Keys held while starting (like R for the default settings) must not count as presses.
   prev_keys = curr_pressed_keys();
+
+  // Fade in from black
+  menu_ready = true;
+  if (ui_fx) {
+    fade_capture();
+    fade_level = 16;
+    fade_apply(16);
+  }
 }
 
 int movedir_up() {
@@ -2852,13 +3284,13 @@ static void keypress_popup_savefile(unsigned newkeys) {
       break;
     case SavLoad:
       if (load_save_sram(spop.p.savopt.savfn))
-        spop.alert_msg = msgs[lang_id][MSG_SAVOPT_MSG1];
+        show_toast(msgs[lang_id][MSG_SAVOPT_MSG1]);
       else
         spop.alert_msg = msgs[lang_id][MSG_SAVOPT_MSG_RERR];
       break;
     case SavClear:
       if (wipe_sav_file(spop.p.savopt.savfn))
-        spop.alert_msg = msgs[lang_id][MSG_SAVOPT_MSG2];
+        show_toast(msgs[lang_id][MSG_SAVOPT_MSG2]);
       else
         spop.alert_msg = msgs[lang_id][MSG_SAVOPT_MSG_WERR];
       break;
@@ -3422,6 +3854,8 @@ static void keypress_menu_settings(unsigned newkeys) {
       anim_speed = anim_speed ? anim_speed - 1 : 0;
     else if (smenu.set.selector == SettUiLang)
       lang_id = (lang_id + LANG_COUNT - 1) % LANG_COUNT;
+    else if (smenu.set.selector == SettUiSound)
+      ui_sound = (ui_sound + 3) % 4;
   }
   if (newkeys & KEY_BUTTRIGHT) {
     if (smenu.set.selector == SettUiTheme)
@@ -3430,6 +3864,8 @@ static void keypress_menu_settings(unsigned newkeys) {
       anim_speed = MIN(animspd_cnt - 1, anim_speed + 1);
     else if (smenu.set.selector == SettUiLang)
       lang_id = (lang_id + 1) % LANG_COUNT;
+    else if (smenu.set.selector == SettUiSound)
+      ui_sound = (ui_sound + 1) % 4;
   }
   if (newkeys & (KEY_BUTTLEFT | KEY_BUTTRIGHT)) {
     if (smenu.set.selector == SettUiHid) {
@@ -3440,6 +3876,10 @@ static void keypress_menu_settings(unsigned newkeys) {
     else if (smenu.set.selector == SettUiFont)
       font_size ^= 1;
     #endif
+    else if (smenu.set.selector == SettUiAnim)
+      ui_anim ^= 1;
+    else if (smenu.set.selector == SettUiFx)
+      ui_fx ^= 1;
     else if (smenu.set.selector == SettBootType)
       boot_bios_splash ^= 1;
     else if (smenu.set.selector == SettCheatEn)
@@ -3475,7 +3915,7 @@ static void keypress_menu_settings(unsigned newkeys) {
     bool ok = save_settings();
     ok = save_ui_settings() && ok;
     if (ok)
-      spop.alert_msg = msgs[lang_id][MSG_OK_SETSAVE];
+      show_toast(msgs[lang_id][MSG_OK_SETSAVE]);
     else
       spop.alert_msg = msgs[lang_id][MSG_ERR_SETSAVE];
   }
@@ -3532,7 +3972,7 @@ static void keypress_menu_tools(unsigned newkeys) {
     else if (smenu.tools.selector == ToolsFlashBak) {
       // Backup the flash contents to a file.
       if (dump_flashmem_backup())
-        spop.alert_msg = msgs[lang_id][MSG_FLASH_READOK];
+        show_toast(msgs[lang_id][MSG_FLASH_READOK]);
       else
         spop.alert_msg = msgs[lang_id][MSG_ERR_GENERIC];
 
@@ -3598,7 +4038,7 @@ static void keypress_popup_system(unsigned newkeys) {
     keypress_menu_info(newkeys);
 }
 
-void menu_keypress(unsigned newkeys) {
+static void menu_keypress_inner(unsigned newkeys) {
   if (spop.alert_msg) {
     // Modal message pop up!
     if (newkeys & (KEY_BUTTA | KEY_BUTTB))
@@ -3690,6 +4130,8 @@ void menu_keypress(unsigned newkeys) {
 
     if (newkeys & (KEY_BUTTL | KEY_BUTTR | KEY_BUTTUP | KEY_BUTTDOWN))
       smenu.anim_state = 0;
+    if ((newkeys & KEY_BUTTA) && !spop.pop_num)
+      press_flash = 7;
 
     const t_mkeyupd_fn keyfns[] = {
       keypress_menu_recent,
@@ -3702,6 +4144,25 @@ void menu_keypress(unsigned newkeys) {
     if (!spop.pop_num)
       keyfns[smenu.menu_tab](newkeys);
   }
+}
+
+void menu_keypress(unsigned newkeys) {
+  menu_keypress_inner(newkeys);
+
+  // Navigation sounds (the keys are handled first so a changed sound setting applies right away)
+  if (!ui_sound) {
+    if (snd_on)
+      ui_sound_stop();
+    return;
+  }
+  if (newkeys & KEY_BUTTA)
+    ui_beep(UiSndOk);
+  else if (newkeys & KEY_BUTTB)
+    ui_beep(UiSndBack);
+  else if (newkeys & (KEY_BUTTL | KEY_BUTTR | KEY_BUTTSTA))
+    ui_beep(UiSndTab);
+  else if (newkeys & (KEY_BUTTUP | KEY_BUTTDOWN | KEY_BUTTLEFT | KEY_BUTTRIGHT))
+    ui_beep(UiSndMove);
 }
 
 // Only repeat keys A/B and Dir

@@ -197,6 +197,7 @@ typedef struct {
 } t_patchdb_info;
 extern t_patchdb_info pdbinfo;
 extern volatile unsigned frame_count;
+void ui_launch_hook(void);     // Called right before a game gets launched (fade out, silence)
 uint32_t systime();
 
 // Patch information for direct save mode.

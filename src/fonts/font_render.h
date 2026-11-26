@@ -22,6 +22,9 @@
 // Size (in bytes) of the font graphs DB
 unsigned font_block_size();
 
+// Glyph rows (bit n = row n of the 16 row cell) that get drawn, lets callers clip text vertically.
+extern uint16_t font_row_mask;
+
 // Returns the number of unicode characters in an encoded utf-8 buffer.
 unsigned utf8_strlen(const char *s);
 

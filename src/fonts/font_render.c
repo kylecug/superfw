@@ -27,6 +27,8 @@
 
 extern void *font_base_addr;
 
+uint16_t font_row_mask = 0xFFFF;
+
 // Memory structures that describe character/font data.
 
 #define FLAG_FW16     0x00000001
@@ -243,6 +245,7 @@ void draw_text_idx8_bus16_range(const char *s, uint8_t *buffer, unsigned skip, u
         uint16_t ch = chinfo.data[0][i];
         for (unsigned c = 1; c < chinfo.nchars; c++)
           ch |= chinfo.data[c][i];
+        ch &= font_row_mask;
 
         #pragma GCC unroll 16
         for (unsigned j = 0; j < 16; j++)
@@ -274,6 +277,7 @@ void draw_text_idx8_bus16(const char *s, uint8_t *buffer, unsigned pitch, uint8_
       uint16_t ch = chinfo.data[0][i];
       for (unsigned c = 1; c < chinfo.nchars; c++)
         ch |= chinfo.data[c][i];
+        ch &= font_row_mask;
 
       #pragma GCC unroll 16
       for (unsigned j = 0; j < 16; j++)
