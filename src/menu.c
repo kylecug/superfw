@@ -174,6 +174,15 @@ enum {
   SettMAX
 };
 
+// The settings window shows the settings split in groups (L/R switch between them).
+enum {
+  SetGrpUI,
+  SetGrpSys,
+  SetGrpSave,
+  SetGrpGame,
+  SetGrpCNT
+};
+
 enum {
   DefsSave     = 4,
   DefsMAX      = 4,
@@ -305,7 +314,9 @@ static struct {
 
   // Main settings
   struct {
-    int selector;                 // Pointed option
+    int selector;                 // Pointed option (a Sett*/Defs* number, kept in sync with group/idx)
+    uint8_t group;                // Current group (tab)
+    uint8_t idx[SetGrpCNT];       // Selected row of each group (the last one is the save button)
   } set;
 
   // Tools menu
@@ -1439,13 +1450,21 @@ static void draw_central_text_wrapped(const char *t, volatile uint8_t *frame, un
 #define CW_BOTTOM   158
 #define CW_CX       144                         // Horizontal center of the big window (logo needs it even)
 #define SM_LEFT     142                         // Small window (START menu)
-#define SM_TOP      90
-#define CW_ROWH     20
-#define CW_ROWS     5
+#define CW_ROWH     14                          // Row pitch: 12 pixel high bars plus 2 pixels of gap
+#define CW_ROWS     7                           // Visible rows
+#define SM_TOP      (CW_BOTTOM - (3 * CW_ROWH + 8))              // START menu: 3 rows, hugs the corner
+#define TW_TOP      (CW_BOTTOM - (ToolsMAX * CW_ROWH + 8))       // Tools window: sized to its rows
+#define TW_ROW0Y    (TW_TOP + 4)
+// Settings window: tab bar (setting groups), rows (at most 6 settings plus the save row), help bar
+#define SW_TOP      24
+#define SW_TAB_Y    (SW_TOP + 2)
+#define SW_TAB_H    14
+#define SW_ROW0Y    (SW_TAB_Y + SW_TAB_H + 2)
+#define SW_HELPY    (SW_ROW0Y + CW_ROWS * CW_ROWH + 2)
+#define CW_HELPY    (CW_TOP + 4 + 5 * 20 + 2)    // Info window: flashing info bar at the bottom
 #define CW_ROW0Y    (CW_TOP + 4)                // First row
 #define CW_ROWW     (CW_RIGHT - CW_LEFT - 4 - 4)  // Row width, leaves room for the scroll bar
 #define SM_ROWW     (CW_RIGHT - SM_LEFT - 4)
-#define CW_HELPY    (CW_ROW0Y + CW_ROWS * CW_ROWH + 2)
 
 static void fill_rect(volatile uint8_t *frame, unsigned x, unsigned y, unsigned w, unsigned h, uint8_t color) {
   for (unsigned r = 0; r < h; r++)
@@ -1471,9 +1490,9 @@ static void cw_row(volatile uint8_t *frame, unsigned left, unsigned width, unsig
   const unsigned xr = left + 2 + width - 4;
   const unsigned vw = value ? MIN(font_width(value), 104U) : 0;
   const unsigned lw = xr - tx - (vw ? vw + 4 : 0);
-  draw_text_ovf(label, frame, tx, y + 1, lw);
+  draw_text_ovf(label, frame, tx, y - 2, lw);
   if (value)
-    draw_rightj_ovf(value, frame, xr, y + 1, vw);
+    draw_rightj_ovf(value, frame, xr, y - 2, vw);
 }
 
 // Vertical scroll bar for a window list (only when there is more than one page).
@@ -1921,6 +1940,47 @@ void render_rtcpop(volatile uint8_t *frame) {
   draw_central_text("⯆", frame, cox[spop.rtcpop.selector], 84);
 }
 
+// Settings of each group, in order (the save button is always the last row of every group).
+static const uint8_t set_groups[SetGrpCNT][8] = {
+  { SettUiTheme, SettUiLang, SettUiASpd,
+    #ifdef BUNDLE_FONT10
+    SettUiFont,
+    #endif
+    SettUiHid, 0xFF },
+  { SettHotkey, SettBootType, SettFastSD,
+    #ifdef SUPPORT_NORGAMES
+    SettVerifyNOR,
+    #endif
+    SettFastEWRAM, SettCheatEn, 0xFF },
+  { SettSaveLoc,
+    #ifdef SUPPORT_NORGAMES
+    SettSaveLocNOR,
+    #endif
+    SettSaveBkp, SettStateLoc, DefsSavePol, DefsPrefDS, 0xFF },
+  { DefsPatchEng, DefsGamMenu, DefsLoadPol, DefsRTCEnb, DefsRTCVal, DefsRTCSpeed, 0xFF },
+};
+
+static const uint16_t set_group_msgs[SetGrpCNT] = {
+  MSG_SETG_UI, MSG_SETG_SYS, MSG_SETG_SAVE, MSG_SETG_GAME,
+};
+
+// Number of settings in a group (without the save button).
+static unsigned set_group_len(unsigned g) {
+  unsigned n = 0;
+  while (set_groups[g][n] != 0xFF)
+    n++;
+  return n;
+}
+
+// Setting number for a row of a group (the row after the last setting is the save button).
+static unsigned set_row_id(unsigned g, unsigned row) {
+  return set_groups[g][row] == 0xFF ? (unsigned)SettSave : set_groups[g][row];
+}
+
+static void set_sync_selector() {
+  smenu.set.selector = set_row_id(smenu.set.group, smenu.set.idx[smenu.set.group]);
+}
+
 // Fills the texts of a row of the settings window.
 // Returns 0 for a regular row, 1 for a section title, 2 for the save button.
 static int settings_row(unsigned idx, const char **label, const char **value, char *vb, unsigned vbsz) {
@@ -2096,29 +2156,43 @@ static const char *settings_help(char *tmp, unsigned tmpsz) {
 }
 
 void render_settings(volatile uint8_t *frame) {
-  draw_corner_window(frame, CW_LEFT, CW_TOP);
+  draw_corner_window(frame, CW_LEFT, SW_TOP);
 
-  const int sel = smenu.set.selector;
-  const int base = cw_base(sel, SettMAX);
-  for (int i = 0; i < CW_ROWS && base + i < SettMAX; i++) {
-    const unsigned y = CW_ROW0Y + i * CW_ROWH;
+  // Tab bar with the setting groups
+  const unsigned grp = smenu.set.group;
+  unsigned tx = CW_LEFT + 4;
+  for (unsigned g = 0; g < SetGrpCNT; g++) {
+    const char *name = msgs[lang_id][set_group_msgs[g]];
+    const unsigned tw = (font_width(name) + 8 + 1) & ~1U;
+    fill_rect(frame, tx, SW_TAB_Y, tw, SW_TAB_H - 2, g == grp ? HI_COLOR : FG_COLOR);
+    draw_text_ovf(name, frame, tx + 4, SW_TAB_Y - 2, tw - 4);
+    tx += tw + 2;
+  }
+
+  // Rows of the current group
+  const unsigned total = set_group_len(grp) + 1;
+  for (unsigned i = 0; i < total; i++) {
+    const unsigned y = SW_ROW0Y + i * CW_ROWH;
+    const bool sel = (i == smenu.set.idx[grp]);
     const char *label, *value;
     char vb[48];
-    const int kind = settings_row(base + i, &label, &value, vb, sizeof(vb));
+    const int kind = settings_row(set_row_id(grp, i), &label, &value, vb, sizeof(vb));
     if (kind == 0)
-      cw_row(frame, CW_LEFT, CW_ROWW, y, base + i == sel, label, value);
+      cw_row(frame, CW_LEFT, CW_ROWW, y, sel, label, value);
     else {
-      // Section titles and the save button are centered "bars".
-      fill_rect(frame, CW_LEFT + 2, y, CW_ROWW, CW_ROWH - 2, (kind == 2 && base + i == sel) ? HI_COLOR : FG_COLOR);
-      draw_central_text(label, frame, CW_LEFT + 2 + CW_ROWW / 2, y + 1);
+      // The save button is a centered "bar".
+      fill_rect(frame, CW_LEFT + 2, y, CW_ROWW, CW_ROWH - 2, sel ? HI_COLOR : FG_COLOR);
+      draw_central_text(label, frame, CW_LEFT + 2 + CW_ROWW / 2, y - 2);
     }
   }
-  cw_scrollbar(frame, base, SettMAX);
 
-  // Help bar at the bottom of the window
+  // Help bar at the bottom of the window (a hint about the tabs if there is no help text)
   char tmp[128];
-  fill_rect(frame, CW_LEFT + 2, CW_HELPY, CW_RIGHT - CW_LEFT - 4, 16, FG_COLOR);
-  draw_text_ovf_rotate(settings_help(tmp, sizeof(tmp)), frame, CW_LEFT + 6, CW_HELPY,
+  const char *help = settings_help(tmp, sizeof(tmp));
+  if (!help[0])
+    help = msgs[lang_id][MSG_SETG_HINT];
+  fill_rect(frame, CW_LEFT + 2, SW_HELPY, CW_RIGHT - CW_LEFT - 4, 16, FG_COLOR);
+  draw_text_ovf_rotate(help, frame, CW_LEFT + 6, SW_HELPY,
                        CW_RIGHT - CW_LEFT - 12, &smenu.anim_state);
 }
 
@@ -2184,12 +2258,12 @@ void render_info(volatile uint8_t *frame) {
 }
 
 void render_tools(volatile uint8_t *frame) {
-  draw_corner_window(frame, CW_LEFT, CW_TOP);
+  draw_corner_window(frame, CW_LEFT, TW_TOP);
 
   const int sel = smenu.tools.selector;
   const int base = cw_base(sel, ToolsMAX);
   for (int i = 0; i < CW_ROWS && base + i < (int)ToolsMAX; i++)
-    cw_row(frame, CW_LEFT, CW_ROWW, CW_ROW0Y + i * CW_ROWH, base + i == sel,
+    cw_row(frame, CW_LEFT, CW_ROWW, TW_ROW0Y + i * CW_ROWH, base + i == sel,
            msgs[lang_id][MSG_TOOLS0_SDRAM + base + i], NULL);
   cw_scrollbar(frame, base, ToolsMAX);
 }
@@ -2274,8 +2348,8 @@ static const struct {
   { render_gba_norload,    GbaNorLoadCNT },
   #endif
   { render_sysmenu_popup,  1, SM_LEFT, SM_TOP },
-  { render_settings,       1, CW_LEFT, CW_TOP },
-  { render_tools,          1, CW_LEFT, CW_TOP },
+  { render_settings,       1, CW_LEFT, SW_TOP },
+  { render_tools,          1, CW_LEFT, TW_TOP },
   { render_info,           1, CW_LEFT, CW_TOP },
 };
 
@@ -2383,6 +2457,7 @@ void menu_init(int sram_testres) {
   // Reset to ROM browser and SD card root.
   memset(&smenu, 0, sizeof(smenu));
   memset(&spop, 0, sizeof(spop));
+  set_sync_selector();
 
   // Reset the file browser as well.
   strcpy(smenu.browser.cpath, "/");
@@ -3248,10 +3323,22 @@ static void keypress_menu_norbrowse(unsigned newkeys) {
 #endif
 
 static void keypress_menu_settings(unsigned newkeys) {
+  // Up/Down move through the rows of the group (wrapping around), L/R switch the group.
+  // Every group remembers its own selected row.
+  const unsigned rows = set_group_len(smenu.set.group) + 1;
+  uint8_t *rowp = &smenu.set.idx[smenu.set.group];
   if (newkeys & KEY_BUTTUP)
-    smenu.set.selector = MAX(0, smenu.set.selector - 1);
+    *rowp = *rowp ? *rowp - 1 : rows - 1;
   if (newkeys & KEY_BUTTDOWN)
-    smenu.set.selector = MIN(SettMAX - 1, smenu.set.selector + 1);
+    *rowp = (*rowp + 1 < rows) ? *rowp + 1 : 0;
+  if (newkeys & KEY_BUTTL)
+    smenu.set.group = (smenu.set.group + SetGrpCNT - 1) % SetGrpCNT;
+  if (newkeys & KEY_BUTTR)
+    smenu.set.group = (smenu.set.group + 1) % SetGrpCNT;
+  if (newkeys & (KEY_BUTTUP | KEY_BUTTDOWN | KEY_BUTTL | KEY_BUTTR)) {
+    smenu.anim_state = 0;
+    set_sync_selector();
+  }
   if (newkeys & KEY_BUTTLEFT) {
     if (smenu.set.selector == SettHotkey)
       hotkey_combo = (hotkey_combo + hotkey_listcnt - 1) % hotkey_listcnt;
@@ -3345,7 +3432,6 @@ static void keypress_menu_settings(unsigned newkeys) {
     spop.rtcpop.callback = accept_rtc;
   }
   if (newkeys & KEY_BUTTA && smenu.set.selector == SettSave) {
-    smenu.set.selector = 0;
     bool ok = save_settings();
     ok = save_ui_settings() && ok;
     if (ok)
@@ -3445,11 +3531,14 @@ static void keypress_menu_info(unsigned newkeys) {
 }
 
 
+static uint8_t sysmenu_last = 0;     // Last START menu entry used
+
 static void keypress_popup_sysmenu(unsigned newkeys) {
   if (newkeys & KEY_BUTTUP)
     spop.selector = MAX(0, spop.selector - 1);
   if (newkeys & KEY_BUTTDOWN)
     spop.selector = MIN(2, spop.selector + 1);
+  sysmenu_last = spop.selector;
 
   if (newkeys & KEY_BUTTSTA)
     spop.pop_num = POPUP_NONE;
@@ -3561,7 +3650,7 @@ void menu_keypress(unsigned newkeys) {
     }
     if (newkeys & KEY_BUTTSTA) {
       spop.pop_num = POPUP_SYSMENU;
-      spop.selector = 0;
+      spop.selector = sysmenu_last;      // Remember the last entry used
       spop.anim = 0;
     }
 

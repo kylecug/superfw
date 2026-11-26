@@ -61,6 +61,11 @@ en_strings = [
 
   "MSG_SET_TITL1":   "Global settings",
   "MSG_SET_TITL2":   "Default GBA settings",
+  "MSG_SETG_UI":     "UI",
+  "MSG_SETG_SYS":    "System",
+  "MSG_SETG_SAVE":   "Saves",
+  "MSG_SETG_GAME":   "Games",
+  "MSG_SETG_HINT":   "L/R: switch settings group",
 
   "MSG_SETT_HOTK":   "Menu Hot-key",
   "MSG_SETT_BOOT":   "Game boot",
