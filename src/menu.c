@@ -52,7 +52,6 @@ enum {
   #ifdef SUPPORT_NORGAMES
   MENUTAB_NORBROWSE,     // Browses Flash games and launches them.
   #endif
-  MENUTAB_FLASH,         // Firmware flashing: temporary unlock button and the risks (last page)
   MENUTAB_SETTINGS,      // Unused as a tab (settings live in a pop-up), kept for icon numbering
   MENUTAB_UILANG,        // Unused (merged into settings), kept for icon numbering
   MENUTAB_TOOLS,         // Tools (advaned menu)
@@ -81,6 +80,7 @@ enum {
   POPUP_SETTINGS,              // All settings (general + UI) in a pop-up window
   POPUP_TOOLS,                 // Tools in a pop-up window
   POPUP_INFO,                  // Info / about in a pop-up window
+  POPUP_FLASH,                 // Firmware flashing unlock (button and risks) in a pop-up window
 };
 
 // File list layout, it depends on the selected font size (see ui_font_init).
@@ -1452,7 +1452,8 @@ static void draw_central_text_wrapped(const char *t, volatile uint8_t *frame, un
 #define SM_LEFT     142                         // Small window (START menu)
 #define CW_ROWH     14                          // Row pitch: 12 pixel high bars plus 2 pixels of gap
 #define CW_ROWS     7                           // Visible rows
-#define SM_TOP      (CW_BOTTOM - (3 * CW_ROWH + 8))              // START menu: 3 rows, hugs the corner
+#define SM_TOP      (CW_BOTTOM - (4 * CW_ROWH + 8))              // START menu: 4 rows, hugs the corner
+#define FW_TOP      20                                           // Flashing window (tall, it has a text)
 #define TW_TOP      (CW_BOTTOM - (ToolsMAX * CW_ROWH + 8))       // Tools window: sized to its rows
 #define TW_ROW0Y    (TW_TOP + 4)
 // Settings window: tab bar (setting groups), rows (at most 6 settings plus the save row), help bar
@@ -2291,18 +2292,18 @@ static void draw_text_wrapped_left(const char *t, volatile uint8_t *frame, unsig
   }
 }
 
-// Firmware flashing page (the last one): the button temporarily allows flashing, and the risks
-// are spelled out below it.
-void render_flashpage(volatile uint8_t *frame) {
-  // Footer bar (the START hint is drawn on top of it)
-  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
+// Firmware flashing window (last entry of the START menu): the button temporarily allows
+// flashing, and the risks are spelled out below it.
+void render_flashwin(volatile uint8_t *frame) {
+  draw_corner_window(frame, CW_LEFT, FW_TOP);
 
-  draw_central_text(msgs[lang_id][enable_flashing ? MSG_FLASH_ST_ON : MSG_FLASH_ST_OFF],
-                    frame, SCREEN_WIDTH / 2, 18);
-  draw_button_box(frame, 20, 220, 36, 56, true);
-  draw_central_text(msgs[lang_id][enable_flashing ? MSG_FLASH_REVOKE : MSG_FLASH_ALLOW],
-                    frame, SCREEN_WIDTH / 2, 38);
-  draw_text_wrapped_left(msgs[lang_id][MSG_FLASH_RISK], frame, 12, 60, 216, 14, 6);
+  draw_central_text_ovf(msgs[lang_id][enable_flashing ? MSG_FLASH_ST_ON : MSG_FLASH_ST_OFF],
+                        frame, CW_CX, FW_TOP + 4, CW_RIGHT - CW_LEFT - 12);
+  draw_button_box(frame, CW_LEFT + 8, CW_RIGHT - 8, FW_TOP + 24, FW_TOP + 44, true);
+  draw_central_text_ovf(msgs[lang_id][enable_flashing ? MSG_FLASH_REVOKE : MSG_FLASH_ALLOW],
+                        frame, CW_CX, FW_TOP + 26, CW_RIGHT - CW_LEFT - 24);
+  draw_text_wrapped_left(msgs[lang_id][MSG_FLASH_RISK], frame, CW_LEFT + 8, FW_TOP + 48,
+                         CW_RIGHT - CW_LEFT - 16, 14, 6);
 }
 
 // Tabs that L/R cycle through. Settings, tools and info live in the START menu.
@@ -2312,7 +2313,6 @@ static const uint8_t game_tabs[] = {
   #ifdef SUPPORT_NORGAMES
   MENUTAB_NORBROWSE,
   #endif
-  MENUTAB_FLASH,
 };
 #define game_tab_cnt (sizeof(game_tabs) / sizeof(game_tabs[0]))
 
@@ -2322,7 +2322,6 @@ static const uint16_t game_tab_names[] = {
   #ifdef SUPPORT_NORGAMES
   MSG_TAB_NOR,
   #endif
-  MSG_TAB_FLASH,
 };
 
 // Text tabs on the top bar, the current one is highlighted.
@@ -2345,13 +2344,14 @@ static void render_start_hint(volatile uint8_t *frame) {
 
 // START menu: small window with the system entries, anchored to the bottom right corner.
 void render_sysmenu_popup(volatile uint8_t *frame) {
-  const char * const names[3] = {
+  const char * const names[4] = {
     msgs[lang_id][MSG_SYS_SETTINGS],
     msgs[lang_id][MSG_SYS_TOOLS],
     msgs[lang_id][MSG_SYS_INFO],
+    msgs[lang_id][MSG_SYS_FLASH],
   };
   draw_corner_window(frame, SM_LEFT, SM_TOP);
-  for (unsigned i = 0; i < 3; i++)
+  for (unsigned i = 0; i < 4; i++)
     cw_row(frame, SM_LEFT, SM_ROWW, SM_TOP + 4 + i * CW_ROWH, i == (unsigned)spop.selector, names[i], NULL);
 }
 
@@ -2390,6 +2390,7 @@ static const struct {
   { render_settings,       1, CW_LEFT, SW_TOP },
   { render_tools,          1, CW_LEFT, TW_TOP },
   { render_info,           1, CW_LEFT, CW_TOP },
+  { render_flashwin,       1, CW_LEFT, FW_TOP },
 };
 
 // Renders the menu. Arg0 represents the frame count difference with the
@@ -2423,7 +2424,6 @@ void menu_render(unsigned fcnt) {
         #ifdef SUPPORT_NORGAMES
         render_flashbrowser,
         #endif
-        render_flashpage,
       };
       renderfns[smenu.menu_tab](frame);
       smenu.anim_state += fcnt * animspd_lut[anim_speed];
@@ -3581,7 +3581,7 @@ static void keypress_popup_sysmenu(unsigned newkeys) {
   if (newkeys & KEY_BUTTUP)
     spop.selector = MAX(0, spop.selector - 1);
   if (newkeys & KEY_BUTTDOWN)
-    spop.selector = MIN(2, spop.selector + 1);
+    spop.selector = MIN(3, spop.selector + 1);
   sysmenu_last = spop.selector;
 
   if (newkeys & KEY_BUTTSTA)
@@ -3591,7 +3591,8 @@ static void keypress_popup_sysmenu(unsigned newkeys) {
       spop.pop_num = POPUP_SETTINGS;
       spop.anim = 0;
     } else {
-      spop.pop_num = (spop.selector == 1) ? POPUP_TOOLS : POPUP_INFO;
+      spop.pop_num = (spop.selector == 1) ? POPUP_TOOLS :
+                     (spop.selector == 2) ? POPUP_INFO : POPUP_FLASH;
       spop.anim = 0;
       smenu.anim_state = 0;
     }
@@ -3654,9 +3655,11 @@ void menu_keypress(unsigned newkeys) {
 
     // Close pop-up on B button (settings/tools/info go back to the START menu).
     if (newkeys & KEY_BUTTB) {
-      if (spop.pop_num == POPUP_SETTINGS || spop.pop_num == POPUP_TOOLS || spop.pop_num == POPUP_INFO) {
+      if (spop.pop_num == POPUP_SETTINGS || spop.pop_num == POPUP_TOOLS ||
+          spop.pop_num == POPUP_INFO || spop.pop_num == POPUP_FLASH) {
         spop.selector = (spop.pop_num == POPUP_SETTINGS) ? 0 :
-                        (spop.pop_num == POPUP_TOOLS)    ? 1 : 2;
+                        (spop.pop_num == POPUP_TOOLS)    ? 1 :
+                        (spop.pop_num == POPUP_INFO)     ? 2 : 3;
         spop.pop_num = POPUP_SYSMENU;
       } else
         spop.pop_num = POPUP_NONE;
@@ -3676,6 +3679,7 @@ void menu_keypress(unsigned newkeys) {
         keypress_menu_settings,
         keypress_menu_tools,
         keypress_menu_info,
+        keypress_menu_flashpage,
       };
       keyfns[spop.pop_num](newkeys);
     }
@@ -3705,7 +3709,6 @@ void menu_keypress(unsigned newkeys) {
       #ifdef SUPPORT_NORGAMES
       keypress_menu_norbrowse,
       #endif
-      keypress_menu_flashpage,
     };
     // Do not handle the key that just opened a pop-up in the page below.
     if (!spop.pop_num)
