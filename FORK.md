@@ -27,7 +27,9 @@
 
 - 汉字和英文改用 [Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font) 10px 点阵字体（SIL OFL 1.1）。
   汉字 10×10，比原来的 16×16 窄 37.5%；英文改成比例字体。（0.22.1 用的是 12px 版本。）
-- 字体包从 697 KB 减到 443 KB。
+- 字体包：`res/fonts.pack`（Lite/SD 版）443 KB；`res/fonts-ext.pack`（SuperChis 版实际使用的那个，多了预组合的韩文音节）794 KB。
+  **注意**：0.22.1 只更新了 `fonts.pack`，而 SuperChis 版编译时用的是 `fonts-ext.pack`（Makefile 里的 `FONTS_EXT`），
+  所以 0.22.1 的 SuperChis 固件里汉字其实还是原来的 16 像素，只有英文变成了 12px。0.22.2 起两个字库都已更新。
 - 10px 版本的汉字覆盖比 12px 少：GB2312 一级字（3755 个常用字）全部有，二级字约 87% 有，
   CJK 统一表意文字区共 10.7k 个（12px 版是 19.5k）。没有的字显示空心方框。繁体和日文版补充。
 - 文件列表行高从 16 像素改成 12 像素，一页显示 11 行（原来 8 行）。底栏高度从 16 改成 12 像素。

@@ -72,4 +72,9 @@ Download the 10px BDF releases (proportional and monospaced) and convert them:
 
 ./generator.py --font-files unscii-16-full.hex fusion-ascii10.hex   --font-blocks ascii,check,arrows,arrows2 --output /tmp/ascii.font
 
+The Chis build (FONTS_EXT in the Makefile) embeds fonts-ext.pack instead, which has the
+pre-composed hangul block. Keep it in sync with fonts.pack:
+
+./generator.py --font-files unscii-16-full.hex hangul-blocks.hex --font-files-10 fusion-cjk10.hex --font-blocks cjk-sym10,latin,latin-a,latin-b,greek,cyrilic,hiragana10,katakana10,cjk-uni10,fixwidth10,hangul --output ../fonts-ext.pack
+
 (and pack /tmp/ascii.font into src/fonts/font_embed.h as described in that file.)
