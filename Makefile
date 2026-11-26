@@ -1,6 +1,7 @@
 
 VERSION_WORD := 0x00000016
-# Fork revision, shown after the upstream version (upstream 0.22 -> 0.22.N). Display only.
+# Fork name and revision, shown after the upstream version (upstream 0.22 -> "0.22 Long v2"). Display only.
+CUSTOM_NAME := Long
 CUSTOM_VERSION := 2
 VERSION_SLUG_WORD := $(shell git rev-parse --short=8 HEAD || echo FFFFFFFF)
 
@@ -79,7 +80,7 @@ CFLAGS=-O2 -ggdb \
        -DSD_PREERASE_BLOCKS_WRITE \
        -DVERSION_WORD="$(VERSION_WORD)" \
        -DVERSION_SLUG_WORD="0x$(VERSION_SLUG_WORD)" \
-       -DCUSTOM_VERSION=$(CUSTOM_VERSION) \
+       -DCUSTOM_VERSION=$(CUSTOM_VERSION) -DCUSTOM_NAME="\"$(CUSTOM_NAME)\"" \
        -Wall -Isrc -I. -mthumb -flto -flto-partition=none
 
 

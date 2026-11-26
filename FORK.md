@@ -1,7 +1,7 @@
 # SuperFW 中文增强分支（0.22.x）
 
 这是 [davidgfnet/superfw](https://github.com/davidgfnet/superfw)（Supercard 的开源固件）的一个分支，
-基于上游 **v0.22**，版本号显示为 **0.22.2**（上游版本号不变，后面加的是本分支自己的小版本号）。
+基于上游 **v0.22**，版本号显示为 **0.22 Long v2**（上游版本号不变，后面加的是本分支的名字 Long 和自己的版本号）。
 
 主要目标：中文使用更顺手（字体、菜单、金手指匹配），并把菜单操作整理得更统一。
 **目前只编译和使用 Supercard SuperChis 版本（`chis`）**，`sd` / `lite` 版本没有编译，也没有测试。
@@ -21,7 +21,7 @@
   - 设置窗口里 L / R 不再切换页面，只用方向键左右修改数值；底部是当前项的说明（过长会滚动）。
   - "保存"按钮同时写入 `settings.txt` 和 `ui-settings.txt`。
   - 信息页的固件更新解锁组合键（下 + B + START）保持不变，窗口里同样有效。
-- 信息页显示 `Version 0.22.2`。小版本号在 `Makefile` 的 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
+- 信息页显示 `Version 0.22 Long v2`。名字和版本号在 `Makefile` 的 `CUSTOM_NAME` 和 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
 
 ### 字体
 

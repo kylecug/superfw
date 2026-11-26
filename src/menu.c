@@ -2108,7 +2108,7 @@ void render_info(volatile uint8_t *frame) {
   switch (smenu.info.selector) {
   case 0:
     draw_central_text("by davidgf", frame, CW_CX, 70);
-    npf_snprintf(tmp, sizeof(tmp), "Version %lu.%lu.%u", vmaj, vmin, (unsigned)CUSTOM_VERSION);
+    npf_snprintf(tmp, sizeof(tmp), "Version %lu.%lu " CUSTOM_NAME " v%u", vmaj, vmin, (unsigned)CUSTOM_VERSION);
     draw_central_text_ovf(tmp, frame, CW_CX, 88, maxw);
     draw_central_text(FW_FLAVOUR " variant", frame, CW_CX, 106);
     npf_snprintf(tmp, sizeof(tmp), "(%08lx)", gitver);
