@@ -82,9 +82,19 @@ enum {
   POPUP_INFO,                  // Info / about in a pop-up window
 };
 
-#define BROWSER_ROWS                 8
-#define RECENT_ROWS                  8
-#define NORGAMES_ROWS                8
+// File lists: 12 pixel rows, between the 16 pixel tab bar and the 12 pixel footer.
+#define LIST_Y0                     16
+#define LIST_ROWH                   12
+#define LIST_FOOTER_Y              148   // Footer bar (16 + 11 * 12 = 148), 12 pixels tall
+#define LIST_FOOTER_H               12
+#define LIST_FOOTER_TXT_Y          146   // Text is drawn at the top of a 16 pixel cell, glyphs start at +3
+#define BROWSER_ROWS                11
+#define RECENT_ROWS                 11
+#define NORGAMES_ROWS               11
+// Top of a list row, and Y position for text/icons (glyphs are 10 pixels, icons 12 rows, both are
+// stored in 16 pixel cells with a 2-3 pixel margin: the cell starts 2 pixels above the row).
+#define LIST_ROW_Y(i)         (LIST_Y0 + (i) * LIST_ROWH)
+#define LIST_CELL_Y(i)        (LIST_ROW_Y(i) - 2)
 
 // First entries reserved for the logo palette.
 #define FG_COLOR         16
@@ -1237,6 +1247,17 @@ static inline void render_icon_trans(unsigned x, unsigned y, unsigned iconn) {
   fobjs[objnum++] = (t_oamobj){x, y | 0x0400, 8*iconn };
 }
 
+// Selection bar for the file lists: LIST_ROWH pixels tall, made of two overlapping
+// 16x8 sprites per column (tile 63 is a solid color block). Only the top-most
+// object pixel gets blended, so the overlap does not get blended twice.
+#define OBJ_SHAPE_WIDE   0x4000       // Shape 1 (16x8 with size 0), kept in the Y word
+static void render_list_selector(unsigned rowtop) {
+  for (unsigned i = 0; i < SCREEN_WIDTH; i += 16) {
+    fobjs[objnum++] = (t_oamobj){i, rowtop | 0x0400 | OBJ_SHAPE_WIDE, 8*63 };
+    fobjs[objnum++] = (t_oamobj){i, (rowtop + LIST_ROWH - 8) | 0x0400 | OBJ_SHAPE_WIDE, 8*63 };
+  }
+}
+
 // Guess the file type based on the file name.
 static unsigned guessicon(const char *path) {
   const char *ext = find_extension(path);
@@ -1251,6 +1272,12 @@ static unsigned guessicon(const char *path) {
       {"gbc", ICON_GBCCART},
       {"nes", ICON_NESCART},
       {"sms", ICON_SMSCART},
+      {"gg",  ICON_GGCART},
+      {"sg",  ICON_SGCART},
+      {"sv",  ICON_SVCART},
+      {"ngp", ICON_NGPCART},
+      {"ngc", ICON_NGCCART},
+      {"pce", ICON_PCECART},
       {"fw",  ICON_UPDFILE},
     };
     for (unsigned i = 0; i < sizeof(exticon)/sizeof(exticon[0]); i++)
@@ -1449,7 +1476,7 @@ static int cw_base(int sel, int total) {
 
 void render_recent(volatile uint8_t *frame) {
   // Footer bar (the START hint is drawn on top of it)
-  dma_memset16(&frame[240*144], dup8(FG_COLOR), 240*16/2);
+  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
 
   // Render the list from memory.
   for (unsigned i = 0; i < RECENT_ROWS; i++) {
@@ -1458,14 +1485,14 @@ void render_recent(volatile uint8_t *frame) {
 
     t_rentry *e = &sdr_state->rentries[smenu.recent.seloff + i];
     char *fn = &e->fpath[e->fname_offset];
-    render_icon(2, (i+1)*16, guessicon(fn));
+    render_icon(2, LIST_CELL_Y(i), guessicon(fn));
 
     // Animate the row entries if they are too long!
     if (i == smenu.recent.selector - smenu.recent.seloff)
-      draw_text_ovf_rotate(fn, frame, 20, (1 + i) * 16,
+      draw_text_ovf_rotate(fn, frame, 20, LIST_CELL_Y(i),
                            SCREEN_WIDTH - 24, &smenu.anim_state);
     else
-      draw_text_ovf(fn, frame, 20, (1 + i) * 16, SCREEN_WIDTH - 24);
+      draw_text_ovf(fn, frame, 20, LIST_CELL_Y(i), SCREEN_WIDTH - 24);
   }
 
   if (!smenu.recent.maxentries) {
@@ -1473,14 +1500,13 @@ void render_recent(volatile uint8_t *frame) {
     return;
   }
 
-  for (unsigned i = 0; i < 240; i += 16)
-    render_icon_trans(i, (smenu.recent.selector - smenu.recent.seloff + 1)*16, 63);
+  render_list_selector(LIST_ROW_Y(smenu.recent.selector - smenu.recent.seloff));
 }
 
 #ifdef SUPPORT_NORGAMES
 void render_flashbrowser(volatile uint8_t *frame) {
   // Render bar below to show block info
-  dma_memset16(&frame[240*144], dup8(FG_COLOR), 240*16/2);
+  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
 
   // Render the list from memory.
   if (!smenu.fbrowser.maxentries)
@@ -1491,24 +1517,23 @@ void render_flashbrowser(volatile uint8_t *frame) {
         break;
 
       const t_flash_game_entry *e = &sdr_state->nordata.games[smenu.fbrowser.seloff + i];
-      render_icon(2, (i+1)*16, ICON_GBACART);
+      render_icon(2, LIST_CELL_Y(i), ICON_GBACART);
 
       // Animate the row entries if they are too long!
       char szstr[16];
       human_size(szstr, sizeof(szstr), e->numblks * NOR_BLOCK_SIZE);
-      draw_rightj_text(szstr, frame, SCREEN_WIDTH - 2, (1 + i) * 16);
+      draw_rightj_text(szstr, frame, SCREEN_WIDTH - 2, LIST_CELL_Y(i));
 
       // Animate the row entries if they are too long!
       const char *romname = &e->game_name[e->bnoffset];
       if (i == smenu.fbrowser.selector - smenu.fbrowser.seloff)
-        draw_text_ovf_rotate(romname, frame, 20, (1 + i) * 16,
+        draw_text_ovf_rotate(romname, frame, 20, LIST_CELL_Y(i),
                              SCREEN_WIDTH - 26 - font_width(szstr), &smenu.anim_state);
       else
-        draw_text_ovf(romname, frame, 20, (1 + i) * 16, SCREEN_WIDTH - 26 - font_width(szstr));
+        draw_text_ovf(romname, frame, 20, LIST_CELL_Y(i), SCREEN_WIDTH - 26 - font_width(szstr));
     }
 
-    for (unsigned i = 0; i < 240; i += 16)
-      render_icon_trans(i, (smenu.fbrowser.selector - smenu.fbrowser.seloff + 1)*16, 63);
+    render_list_selector(LIST_ROW_Y(smenu.fbrowser.selector - smenu.fbrowser.seloff));
   }
 
   char tmp[32], tmp1[32], tmp2[32];
@@ -1518,13 +1543,13 @@ void render_flashbrowser(volatile uint8_t *frame) {
   human_size(tmp1, sizeof(tmp1), smenu.fbrowser.usedblks * NOR_BLOCK_SIZE);
   human_size(tmp2, sizeof(tmp2), NOR_GAMEBLOCK_COUNT * NOR_BLOCK_SIZE);
   npf_snprintf(tmp, sizeof(tmp), "NOR %s/%s", tmp1, tmp2);
-  draw_text_ovf(tmp, frame, 8, 144, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
+  draw_text_ovf(tmp, frame, 8, LIST_FOOTER_TXT_Y, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
 }
 #endif
 
 void render_browser(volatile uint8_t *frame) {
   // Render bar below to show path URI
-  dma_memset16(&frame[240*144], dup8(FG_COLOR), 240*16/2);
+  dma_memset16(&frame[240*LIST_FOOTER_Y], dup8(FG_COLOR), 240*LIST_FOOTER_H/2);
 
   if (!smenu.browser.dispentries)
     draw_central_text(msgs[lang_id][MSG_BROW_EMPTY], frame, SCREEN_WIDTH/2, SCREEN_HEIGHT/2-8);
@@ -1540,27 +1565,26 @@ void render_browser(volatile uint8_t *frame) {
                          (e->attr & AM_DIR) ? ICON_FOLDER :
                          guessicon(e->fname);
 
-      render_icon(2, (i+1)*16, iconidx);
+      render_icon(2, LIST_CELL_Y(i), iconidx);
 
       if (!(e->attr & AM_DIR)) {
         human_size(szstr, sizeof(szstr), e->filesize);
-        draw_rightj_text(szstr, frame, SCREEN_WIDTH - 2, (1 + i) * 16);
+        draw_rightj_text(szstr, frame, SCREEN_WIDTH - 2, LIST_CELL_Y(i));
       }
 
       // Animate the row entries if they are too long!
       if (i == smenu.browser.selector - smenu.browser.seloff)
-        draw_text_ovf_rotate(e->fname, frame, 20, (1 + i) * 16,
+        draw_text_ovf_rotate(e->fname, frame, 20, LIST_CELL_Y(i),
                              SCREEN_WIDTH - 26 - font_width(szstr), &smenu.anim_state);
       else
-        draw_text_ovf(e->fname, frame, 20, (1 + i) * 16, SCREEN_WIDTH - 26 - font_width(szstr));
+        draw_text_ovf(e->fname, frame, 20, LIST_CELL_Y(i), SCREEN_WIDTH - 26 - font_width(szstr));
     }
 
-    for (unsigned i = 0; i < 240; i += 16)
-      render_icon_trans(i, (smenu.browser.selector - smenu.browser.seloff + 1)*16, 63);
+    render_list_selector(LIST_ROW_Y(smenu.browser.selector - smenu.browser.seloff));
   }
 
   // Draw path, cut left part if necessary.
-  draw_text_leftovf(smenu.browser.cpath, frame, 8, 144, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
+  draw_text_leftovf(smenu.browser.cpath, frame, 8, LIST_FOOTER_TXT_Y, SCREEN_WIDTH - 20 - font_width(msgs[lang_id][MSG_START_HINT]));
 
   char selinfo[16];
   npf_snprintf(selinfo, sizeof(selinfo), "%u/%d", smenu.browser.selector + 1, smenu.browser.dispentries);
@@ -2175,7 +2199,7 @@ static void render_tabbar(volatile uint8_t *frame) {
 
 // START hint at the bottom right corner of the main pages.
 static void render_start_hint(volatile uint8_t *frame) {
-  draw_rightj_text(msgs[lang_id][MSG_START_HINT], frame, SCREEN_WIDTH - 6, 144);
+  draw_rightj_text(msgs[lang_id][MSG_START_HINT], frame, SCREEN_WIDTH - 6, LIST_FOOTER_TXT_Y);
 }
 
 // START menu: small window with the system entries, anchored to the bottom right corner.
@@ -2295,7 +2319,8 @@ void menu_render(unsigned fcnt) {
 void menu_flip() {
   for (unsigned i = 0; i < objnum; i++) {
     MEM_OAM[i*4+0] = fobjs[i].y | 0x2000;  // Use 256 entries palette
-    MEM_OAM[i*4+1] = fobjs[i].x | 0x4000;  // Size 16x16
+    // Size 16x16 (square) or 16x8 (wide shape, size bits stay 0)
+    MEM_OAM[i*4+1] = fobjs[i].x | ((fobjs[i].y & OBJ_SHAPE_WIDE) ? 0 : 0x4000);
     MEM_OAM[i*4+2] = fobjs[i].tn + 512;    // OBJ numbers start at 512 for Mode 4
   }
   dma_memset16(&MEM_OAM[objnum*4], 0, 256 - objnum*2);  // Clear unused objects

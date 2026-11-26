@@ -7,10 +7,11 @@
 # Two outputs are produced:
 #  * ASCII glyphs (U+0020..U+007E) as 8 pixel wide, 16 row cells (32 hex digits).
 #    generator.py trims the empty columns, so the font becomes proportional.
-#  * CJK glyphs as 12 pixel wide, 16 row cells (64 hex digits, one 12 bit row each).
+#  * CJK glyphs as 12 (or 10, see --size) pixel wide, 16 row cells (64 hex digits,
+#    one 4 digit row each, the leftmost pixel is bit 11 (bit 9 for 10 pixel cells)).
 #
-# The Fusion Pixel cell (12 rows for the monospaced font, 16 for the proportional
-# one) is centered in the 16 pixel lines the menus are laid out with.
+# The Fusion Pixel cell (12 rows for the 12px monospaced font, 10 for the 10px one,
+# 14/16 for the proportional ones) is centered in the 16 pixel lines the menus use.
 #
 # Usage:
 #  ./fusion2hex.py --ascii-bdf fusion-pixel-12px-proportional-zh_hans.bdf \
@@ -29,6 +30,8 @@ parser.add_argument('--ascii-bdf', nargs='+', required=True)
 parser.add_argument('--cjk-bdf', nargs='+', required=True)
 parser.add_argument('--out-ascii', required=True)
 parser.add_argument('--out-cjk', required=True)
+parser.add_argument('--size', type=int, default=12, choices=(10, 12),
+                    help='Pixel size of the CJK cells (the BDF files must match it)')
 args = parser.parse_args()
 
 CJK_RANGES = [
@@ -106,7 +109,7 @@ for lo, hi in CJK_RANGES:
     rows = None
     for gl, asc, pad in fonts:
       if cp in gl:
-        rows = cell_rows(gl[cp], asc, pad, 12)
+        rows = cell_rows(gl[cp], asc, pad, args.size)
         if rows is not None:
           break
     if rows is None:

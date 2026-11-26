@@ -35,6 +35,7 @@
 #  int32: flags
 #      bit0: set if font is 16pixel fixed width, 0 if it's variable
 #      bit1: set if font is 12pixel fixed width (12 columns per char)
+#      bit2: set if font is 10pixel fixed width (10 columns per char)
 #      bit31: requires multi-char composition (for now only hangul supported)
 #  int32: offset (bytes, after the index)
 #
@@ -57,6 +58,7 @@ SPACE_PIXELS = 4    # Must be at least 1!
 parser = argparse.ArgumentParser(prog='efontgen')
 parser.add_argument('--font-files', dest='fontfiles', nargs='+', help='List of font files, order matters')
 parser.add_argument('--font-files-12', dest='fontfiles12', nargs='*', default=[], help='Font files for the 12 pixel wide blocks (rows are 12 bit values)')
+parser.add_argument('--font-files-10', dest='fontfiles10', nargs='*', default=[], help='Font files for the 10 pixel wide blocks (rows are 12 bit values, leftmost pixel is bit 9)')
 parser.add_argument('--font-blocks', dest='blocks', type=str, default=DEF_BLOCKS, help='Comma separated list of font blocks')
 parser.add_argument('--output', dest='out', required=True, help='Output header file that contains font data')
 parser.add_argument('--debug-png', dest='dbgpng', type=str, default=None, help='Debug font PNG file')
@@ -101,6 +103,13 @@ blocks = {
   "cjk-uni12":  (0x4E00, 0x9FEF, 12),
   "fixwidth12": (0xFF01, 0xFF20, 12),
 
+  # 10 pixel wide variants (Fusion Pixel), glyphs come from --font-files-10
+  "cjk-sym10":  (0x3000, 0x3009, 10),
+  "hiragana10": (0x3040, 0x309F, 10),
+  "katakana10": (0x30A0, 0x30FF, 10),
+  "cjk-uni10":  (0x4E00, 0x9FEF, 10),
+  "fixwidth10": (0xFF01, 0xFF20, 10),
+
   # Composable char blocks
   "hangul-part": (0x20000, 0x200CC, 16, ["hangul"]),   # Full-width hangul composite syllable.
 }
@@ -127,6 +136,15 @@ for f in args.fontfiles12:
     assert len(hexrows) == 64
     rows = [int(hexrows[i:i+4], 16) for i in range(0, 64, 4)]
     fontmap12[int(cn, 16)] = [sum(1 << r for r in range(16) if rows[r] & (1 << (11 - c))) for c in range(12)]
+
+# 10 pixel wide glyphs, same layout (leftmost pixel is bit 9).
+fontmap10 = {}
+for f in args.fontfiles10:
+  for line in open(f, "r").read().strip().split("\n"):
+    cn, hexrows = line.split(":")
+    assert len(hexrows) == 64
+    rows = [int(hexrows[i:i+4], 16) for i in range(0, 64, 4)]
+    fontmap10[int(cn, 16)] = [sum(1 << r for r in range(16) if rows[r] & (1 << (9 - c))) for c in range(10)]
 
 
 # Calculate the block sizes and ranges, total character count, etc.
@@ -165,7 +183,7 @@ oblocks = []
 for startchar, endchar, charwidth, _ in charblocks:
   numchrs = endchar - startchar + 1
   print("Character block", hex(startchar), "-", hex(endchar), charwidth, "wide")
-  if charwidth != 12:
+  if charwidth not in (10, 12):
     charws = [len(vfontmap[cn]) for cn in range(startchar, endchar + 1) if cn in vfontmap]
     assert(len(set(charws)) == 1)
 
@@ -219,6 +237,20 @@ for startchar, endchar, charwidth, _ in charblocks:
     oblocks.append(data12 + (b"\x00" * (-len(data12) % 4)))
     print(len(data12) // 24, "characters created for 12x16 char block", len(data12), "bytes,", nmissing, "missing")
 
+  elif charwidth == 10:
+    # Fixed width, 10 columns of 16 bit each. Missing chars are drawn as a hollow box.
+    box = [0x1FF8] + [0x1008] * 8 + [0x1FF8]
+    data10 = b""
+    nmissing = 0
+    for cn in range(startchar, endchar + 1):
+      if cn not in fontmap10:
+        nmissing += 1
+      chdata = fontmap10.get(cn, box)
+      assert len(chdata) == 10
+      data10 += b"".join(struct.pack("<H", x) for x in chdata)
+    oblocks.append(data10 + (b"\x00" * (-len(data10) % 4)))
+    print(len(data10) // 20, "characters created for 10x16 char block", len(data10), "bytes,", nmissing, "missing")
+
   else:
     data16 = b""
     for cn in range(startchar, endchar + 1):
@@ -247,7 +279,7 @@ with open(args.out, "wb") as ofd:
   blksize = sum(len(b) for b in oblocks) + 16*numhdrs + 8
   ofd.write(struct.pack("<ccBBI", b"F", b"O", 1, numhdrs, blksize))
   for startchar, endchar, charwidth, compblk in charblocks:
-    flags = 1 if charwidth == 16 else 2 if charwidth == 12 else 0
+    flags = 1 if charwidth == 16 else 2 if charwidth == 12 else 4 if charwidth == 10 else 0
 
     if compblk:
       for dset in compblk:

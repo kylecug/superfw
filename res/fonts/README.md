@@ -55,3 +55,21 @@ And the embedded ASCII font (src/fonts/font_embed.h) with:
   --font-blocks ascii,check,arrows,arrows2 --output /tmp/ascii.font
 
 (The original unscii-only commands above still reproduce the original files.)
+
+
+Fusion Pixel (10px) variant
+---------------------------
+
+The current fonts.pack uses the 10px Fusion Pixel BDFs instead (CJK characters are 10
+pixels wide, flag bit2 in the block index; ASCII is proportional). Cells are centered in
+the 16 pixel lines, so the menus draw text 2 pixels above a 12 pixel list row.
+
+Download the 10px BDF releases (proportional and monospaced) and convert them:
+
+./fusion2hex.py --size 10   --ascii-bdf fusion-pixel-10px-proportional-zh_hans.bdf fusion-pixel-10px-monospaced-zh_hans.bdf   --cjk-bdf fusion-pixel-10px-monospaced-zh_hans.bdf fusion-pixel-10px-monospaced-zh_hant.bdf             fusion-pixel-10px-monospaced-ja.bdf   --out-ascii fusion-ascii10.hex --out-cjk fusion-cjk10.hex
+
+./generator.py --font-files unscii-16-full.hex hangul-blocks.hex --font-files-10 fusion-cjk10.hex   --font-blocks cjk-sym10,latin,latin-a,latin-b,greek,cyrilic,hiragana10,katakana10,cjk-uni10,fixwidth10,hangul-part   --output ../fonts.pack
+
+./generator.py --font-files unscii-16-full.hex fusion-ascii10.hex   --font-blocks ascii,check,arrows,arrows2 --output /tmp/ascii.font
+
+(and pack /tmp/ascii.font into src/fonts/font_embed.h as described in that file.)

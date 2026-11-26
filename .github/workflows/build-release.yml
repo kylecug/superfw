@@ -2,6 +2,7 @@ name: SuperFW release
 run-name: Build a full SuperFW release
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - 'master'

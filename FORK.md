@@ -1,7 +1,7 @@
 # SuperFW 中文增强分支（0.22.x）
 
 这是 [davidgfnet/superfw](https://github.com/davidgfnet/superfw)（Supercard 的开源固件）的一个分支，
-基于上游 **v0.22**，版本号显示为 **0.22.1**（上游版本号不变，后面加的是本分支自己的小版本号）。
+基于上游 **v0.22**，版本号显示为 **0.22.2**（上游版本号不变，后面加的是本分支自己的小版本号）。
 
 主要目标：中文使用更顺手（字体、菜单、金手指匹配），并把菜单操作整理得更统一。
 **目前只编译和使用 Supercard SuperChis 版本（`chis`）**，`sd` / `lite` 版本没有编译，也没有测试。
@@ -21,16 +21,21 @@
   - 设置窗口里 L / R 不再切换页面，只用方向键左右修改数值；底部是当前项的说明（过长会滚动）。
   - "保存"按钮同时写入 `settings.txt` 和 `ui-settings.txt`。
   - 信息页的固件更新解锁组合键（下 + B + START）保持不变，窗口里同样有效。
-- 信息页显示 `Version 0.22.1`。小版本号在 `Makefile` 的 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
+- 信息页显示 `Version 0.22.2`。小版本号在 `Makefile` 的 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
 
 ### 字体
 
-- 汉字和英文改用 [Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font) 12px 点阵字体（SIL OFL 1.1）。
-  汉字 12×12，比原来的 16×16 窄 25%；英文改成比例字体，平均窄约 17%。
-- 字体包从 697 KB 减到 528 KB。
-- 汉字覆盖 CJK 统一表意文字区的约 94%（简体为主，繁体和日文版补充），其余生僻字显示空心方框。
+- 汉字和英文改用 [Fusion Pixel Font](https://github.com/TakWolf/fusion-pixel-font) 10px 点阵字体（SIL OFL 1.1）。
+  汉字 10×10，比原来的 16×16 窄 37.5%；英文改成比例字体。（0.22.1 用的是 12px 版本。）
+- 字体包从 697 KB 减到 443 KB。
+- 10px 版本的汉字覆盖比 12px 少：GB2312 一级字（3755 个常用字）全部有，二级字约 87% 有，
+  CJK 统一表意文字区共 10.7k 个（12px 版是 19.5k）。没有的字显示空心方框。繁体和日文版补充。
+- 文件列表行高从 16 像素改成 12 像素，一页显示 11 行（原来 8 行）。底栏高度从 16 改成 12 像素。
+  选中条由两排 16×8 的精灵拼成。
+- 文件列表的图标改成 12 行高（16×12），并新增了 Game Gear、SG-1000、Super Vision、Neo Geo Pocket、
+  Neo Geo Pocket Color、PC Engine 六种平台的图标（原来显示为通用文件图标）。图标按扩展名识别。
 - 韩文、俄文、希腊文、带音标的拉丁字母仍使用原来的 16 像素字体。
-- 字体生成工具见 `res/fonts/`：`fusion2hex.py`（BDF 转换）和 `generator.py`（新增 12 像素宽块类型），
+- 字体生成工具见 `res/fonts/`：`fusion2hex.py`（BDF 转换，`--size 10|12`）和 `generator.py`（新增 12、10 像素宽块类型），
   命令写在 `res/fonts/README.md`。用旧参数重新生成仍能逐字节还原原来的字体文件。
 
 ### 金手指
