@@ -1,8 +1,8 @@
 
 VERSION_WORD := 0x00000016
-# Fork name and revision, shown after the upstream version (upstream 0.22 -> "0.22 Long v2"). Display only.
+# Fork name and revision, shown after the upstream version (upstream 0.22 -> "0.22 Long v3"). Display only.
 CUSTOM_NAME := Long
-CUSTOM_VERSION := 2
+CUSTOM_VERSION := 3
 VERSION_SLUG_WORD := $(shell git rev-parse --short=8 HEAD || echo FFFFFFFF)
 
 PREFIX		:= arm-none-eabi-

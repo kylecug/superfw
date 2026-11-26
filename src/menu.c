@@ -82,19 +82,19 @@ enum {
   POPUP_INFO,                  // Info / about in a pop-up window
 };
 
-// File lists: 12 pixel rows, between the 16 pixel tab bar and the 12 pixel footer.
-#define LIST_Y0                     16
-#define LIST_ROWH                   12
-#define LIST_FOOTER_Y              148   // Footer bar (16 + 11 * 12 = 148), 12 pixels tall
-#define LIST_FOOTER_H               12
-#define LIST_FOOTER_TXT_Y          146   // Text is drawn at the top of a 16 pixel cell, glyphs start at +3
-#define BROWSER_ROWS                11
-#define RECENT_ROWS                 11
-#define NORGAMES_ROWS               11
-// Top of a list row, and Y position for text/icons (glyphs are 10 pixels, icons 12 rows, both are
-// stored in 16 pixel cells with a 2-3 pixel margin: the cell starts 2 pixels above the row).
+// File lists: 14 pixel rows (12 pixel glyphs), between the 16 pixel tab bar and the 16 pixel footer.
+#define LIST_Y0                     17
+#define LIST_ROWH                   14
+#define LIST_FOOTER_Y              144   // Footer bar, 16 pixels tall (17 + 9 * 14 = 143)
+#define LIST_FOOTER_H               16
+#define LIST_FOOTER_TXT_Y          144   // Text is drawn at the top of a 16 pixel cell
+#define BROWSER_ROWS                 9
+#define RECENT_ROWS                  9
+#define NORGAMES_ROWS                9
+// Top of a list row, and Y position for text/icons (glyphs are 12 pixels, icons 12 rows, both are
+// stored in 16 pixel cells with a 2 pixel margin: the cell starts 1 pixel above the row).
 #define LIST_ROW_Y(i)         (LIST_Y0 + (i) * LIST_ROWH)
-#define LIST_CELL_Y(i)        (LIST_ROW_Y(i) - 2)
+#define LIST_CELL_Y(i)        (LIST_ROW_Y(i) - 1)
 
 // First entries reserved for the logo palette.
 #define FG_COLOR         16
