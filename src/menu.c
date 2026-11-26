@@ -1749,8 +1749,10 @@ void render_recent(volatile uint8_t *frame) {
     draw_empty_state(frame, msgs[lang_id][MSG_EMPTY_RECENT], msgs[lang_id][MSG_EMPTY_H_RECENT]);
   else {
     render_list(frame, MENUTAB_RECENT, smenu.recent.selector, smenu.recent.seloff, total, recent_row);
-    const t_rentry *e = &sdr_state->rentries[smenu.recent.selector];
-    name = &e->fpath[e->fname_offset];
+    if (smenu.recent.selector >= 0 && smenu.recent.selector < total) {
+      const t_rentry *e = &sdr_state->rentries[smenu.recent.selector];
+      name = &e->fpath[e->fname_offset];
+    }
     npf_snprintf(cnt, sizeof(cnt), "%d/%d", smenu.recent.selector + 1, total);
   }
   render_list_footer(frame, name, MSG_HINT_RECENT);
@@ -1767,8 +1769,10 @@ void render_flashbrowser(volatile uint8_t *frame) {
     draw_empty_state(frame, msgs[lang_id][MSG_NOR_EMPTY], msgs[lang_id][MSG_EMPTY_H_NOR]);
   else {
     render_list(frame, MENUTAB_NORBROWSE, smenu.fbrowser.selector, smenu.fbrowser.seloff, total, nor_row);
-    const t_flash_game_entry *e = &sdr_state->nordata.games[smenu.fbrowser.selector];
-    name = &e->game_name[e->bnoffset];
+    if (smenu.fbrowser.selector >= 0 && smenu.fbrowser.selector < total) {
+      const t_flash_game_entry *e = &sdr_state->nordata.games[smenu.fbrowser.selector];
+      name = &e->game_name[e->bnoffset];
+    }
     npf_snprintf(cnt, sizeof(cnt), "%d/%d", smenu.fbrowser.selector + 1, total);
   }
   render_list_footer(frame, name, MSG_HINT_NOR);
@@ -1790,7 +1794,8 @@ void render_browser(volatile uint8_t *frame) {
     draw_empty_state(frame, msgs[lang_id][MSG_BROW_EMPTY], msgs[lang_id][MSG_EMPTY_H_DIR]);
   else {
     render_list(frame, MENUTAB_ROMBROWSE, smenu.browser.selector, smenu.browser.seloff, total, browser_row);
-    name = sdr_state->filefilter[smenu.browser.selector]->fname;
+    if (smenu.browser.selector >= 0 && smenu.browser.selector < total)
+      name = sdr_state->filefilter[smenu.browser.selector]->fname;
     npf_snprintf(cnt, sizeof(cnt), "%d/%d", smenu.browser.selector + 1, total);
   }
   render_list_footer(frame, name, MSG_HINT_BROWSE);
@@ -2629,7 +2634,7 @@ static void render_tabbar(volatile uint8_t *frame) {
 
 // ---- Effects: dim, fades, toast, button feedback ---------------------------------------------
 static bool menu_ready = false;         // The video is set up, the menu can be drawn at any time
-static uint8_t dim_level;               // Brightness decrease (REG_BLDY) applied outside of the windows
+static uint8_t dim_level;               // 0..3: how much the page behind the windows is darkened
 static uint8_t press_flash;             // Frames left of the selection bar flash after pressing A
 static uint16_t fade_buf[512];          // Palette copy used by the fades
 static uint8_t fade_level;              // 16: black ... 0: normal (fade in when the menu starts)
@@ -2686,14 +2691,26 @@ static void update_effects(void) {
   // outside of the windows, see REG_WINOUT).
   const bool window = win_slide.cur < (SYS_WIN_H - 30) * 16 && !spop.qpop.message && !spop.rtcpop.callback &&
                       !(spop.pop_num && spop.pop_num != POPUP_SYSTEM);
-  const unsigned target = (ui_fx && (spop.alert_msg || window)) ? 6 : 0;
+  const unsigned target = (ui_fx && (spop.alert_msg || window)) ? 3 : 0;
   if (!ui_anim)
     dim_level = target;
   else {
     for (unsigned f = 0; f < anim_frames && dim_level != target; f++)
       dim_level += dim_level < target ? 1 : -1;
   }
-  REG_BLDY = dim_level;
+  if (dim_level) {
+    // BG2 (first target) blended with the black backdrop (second target) at EVA/16, only where the
+    // window effects are enabled (outside of the windows). The semi-transparent selection bar
+    // sprites use the same coefficients: they get a bit more opaque, which is fine.
+    static const uint16_t dim_alpha[4] = { 0x0808, 0x060D, 0x070B, 0x0709 };    // EVA | EVB << 8
+    REG_BLDCNT = 0x3F44;
+    REG_BLDALPHA = dim_alpha[dim_level];
+    REG_WINOUT = 0x0034;
+  } else {
+    REG_BLDCNT = 0x1F40;
+    REG_BLDALPHA = 0x0808;
+    REG_WINOUT = 0x0014;
+  }
 
   // Fade in when the menu starts
   if (fade_level) {
@@ -2843,6 +2860,7 @@ void menu_render(unsigned fcnt) {
   else if (spop.rtcpop.callback)
     render_rtcpop(frame);
   else if (fullscreen) {
+    anim_snap(&win_slide, SYS_WIN_H * 16);
     popup_windows[spop.pop_num - 1].render(frame);
     spop.anim += fcnt * animspd_lut[anim_speed];
   } else {
@@ -2946,7 +2964,8 @@ void menu_init(int sram_testres) {
 
   // Further setup initial video regs. BG2 is setup in the bootloader already!
   REG_WININ  = 0x0404;     // Only BG2 is enabled in Win0 and Win1
-  REG_WINOUT = 0x0034;     // BG2 and OBJ enabled outside of Win0, with special effects (dim)
+  REG_WINOUT = 0x0014;     // BG2 and OBJ enabled outside of Win0 (menu_render adds effects for the dim)
+  MEM_PALETTE[0] = 0;      // Black backdrop: the dim blends the page with it
   REG_WIN0H = 0;
   REG_WIN0V = 0;
   REG_WIN1H = 0;
@@ -2954,8 +2973,7 @@ void menu_init(int sram_testres) {
   REG_DISPCNT |= 0x6000;   // Enable windows 0 and 1
 
   // Setup alpha blending for the selector knob
-  REG_BLDCNT = 0x1FC4;     // BG2 brightness decrease (dim behind windows), OBJ alpha as 2nd target
-  REG_BLDY = 0;
+  REG_BLDCNT = 0x1F40;
   REG_BLDALPHA = 0x0808;  // 50% alpha
 
   // If there's a test result to report, create a popup
