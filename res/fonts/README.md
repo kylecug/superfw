@@ -66,7 +66,7 @@ the 16 pixel lines, so the menus draw text 2 pixels above a 12 pixel list row.
 
 Download the 10px BDF releases (proportional and monospaced) and convert them:
 
-./fusion2hex.py --size 10   --ascii-bdf fusion-pixel-10px-proportional-zh_hans.bdf fusion-pixel-10px-monospaced-zh_hans.bdf   --cjk-bdf fusion-pixel-10px-monospaced-zh_hans.bdf fusion-pixel-10px-monospaced-zh_hant.bdf             fusion-pixel-10px-monospaced-ja.bdf   --out-ascii fusion-ascii10.hex --out-cjk fusion-cjk10.hex
+./fusion2hex.py --size 10   --ascii-bdf fusion-pixel-10px-proportional-zh_hans.bdf fusion-pixel-10px-monospaced-zh_hans.bdf   --cjk-bdf fusion-pixel-10px-monospaced-zh_hans.bdf fusion-pixel-10px-monospaced-zh_hant.bdf fusion-pixel-10px-monospaced-ja.bdf fusion-pixel-10px-monospaced-ko.bdf   --out-ascii fusion-ascii10.hex --out-cjk fusion-cjk10.hex
 
 ./generator.py --font-files unscii-16-full.hex hangul-blocks.hex --font-files-10 fusion-cjk10.hex   --font-blocks cjk-sym10,latin,latin-a,latin-b,greek,cyrilic,hiragana10,katakana10,cjk-uni10,fixwidth10,hangul-part   --output ../fonts.pack
 
@@ -78,3 +78,17 @@ pre-composed hangul block. Keep it in sync with fonts.pack:
 ./generator.py --font-files unscii-16-full.hex hangul-blocks.hex --font-files-10 fusion-cjk10.hex --font-blocks cjk-sym10,latin,latin-a,latin-b,greek,cyrilic,hiragana10,katakana10,cjk-uni10,fixwidth10,hangul --output ../fonts-ext.pack
 
 (and pack /tmp/ascii.font into src/fonts/font_embed.h as described in that file.)
+
+
+Extended glyph sets and hangul (current fonts-ext packs)
+--------------------------------------------------------
+
+fusion2hex.py also converts Latin-1, Latin Extended A/B, Greek and Cyrillic (proportional,
+at most 8 columns, wider glyphs fall back to unscii) into the --out-ascii file, and the
+hangul syllables (needs the ko monospaced BDF in --cjk-bdf, put it last) into --out-cjk.
+The packs the SuperChis build uses are generated with the full lists of blocks:
+
+./generator.py --font-files unscii-16-full.hex hangul-blocks.hex fusion-ascii10.hex --font-files-10 fusion-cjk10.hex --font-blocks ascii,check,arrows,arrows2,cjk-sym10,latin,latin-a,latin-b,greek,cyrilic,hiragana10,katakana10,cjk-uni10,fixwidth10,hangul10 --output ../fonts-ext-10px.pack
+
+(and the same with the 12 variants: fusion-ascii.hex, --font-files-12 fusion-cjk12.hex and
+the *12 blocks for ../fonts-ext.pack).

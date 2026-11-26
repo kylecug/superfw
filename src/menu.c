@@ -2362,11 +2362,6 @@ void menu_flip() {
 static void ui_font_init() {
   lay = list_layout_12;
   #ifdef BUNDLE_FONT10
-  // Safe boot: holding SELECT while powering on ignores the saved font size (12px is used), so a
-  // bad setting can never lock the device out. Saving the settings writes the default back.
-  if (font_size && (curr_pressed_keys() & KEY_BUTTSEL))
-    font_size = 0;
-
   if (font_size) {
     set_supercard_mode(MAPPED_SDRAM, true, false);
     const void *src = get_vfile_ptr("FNT1");
@@ -2378,6 +2373,8 @@ static void ui_font_init() {
   }
   #endif
 }
+
+static uint32_t prev_keys;    // Keys seen on the last poll (defined below)
 
 void menu_init(int sram_testres) {
   // Pick the font (and the list layout that goes with it) before drawing anything.
@@ -2422,6 +2419,9 @@ void menu_init(int sram_testres) {
   if (sram_testres >= 0)
     spop.alert_msg = sram_testres ? msgs[lang_id][MSG_SRAMTST_FAIL] :
                                     msgs[lang_id][MSG_SRAMTST_OK];
+
+  // Keys held while starting (like R for the default settings) must not count as presses.
+  prev_keys = curr_pressed_keys();
 }
 
 int movedir_up() {

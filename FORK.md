@@ -1,7 +1,7 @@
 # SuperFW 中文增强分支（0.22.x）
 
 这是 [davidgfnet/superfw](https://github.com/davidgfnet/superfw)（Supercard 的开源固件）的一个分支，
-基于上游 **v0.22**，版本号显示为 **0.22 Long v5**（上游版本号不变，后面加的是本分支的名字 Long 和自己的版本号）。
+基于上游 **v0.22**，版本号显示为 **0.22 Long v6**（上游版本号不变，后面加的是本分支的名字 Long 和自己的版本号）。
 
 主要目标：中文使用更顺手（字体、菜单、金手指匹配），并把菜单操作整理得更统一。
 **目前只编译和使用 Supercard SuperChis 版本（`chis`）**，`sd` / `lite` 版本没有编译，也没有测试。
@@ -21,7 +21,7 @@
   - 设置窗口里 L / R 不再切换页面，只用方向键左右修改数值；底部是当前项的说明（过长会滚动）。
   - "保存"按钮同时写入 `settings.txt` 和 `ui-settings.txt`。
   - 信息页的固件更新解锁组合键（下 + B + START）保持不变，窗口里同样有效。
-- 信息页显示 `Version 0.22 Long v5`。名字和版本号在 `Makefile` 的 `CUSTOM_NAME` 和 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
+- 信息页显示 `Version 0.22 Long v6`。名字和版本号在 `Makefile` 的 `CUSTOM_NAME` 和 `CUSTOM_VERSION`，只用于显示，不影响固件更新的版本判断。
 
 ### 字体
 
@@ -33,8 +33,10 @@
     CJK 统一表意文字区共 10.7k 个（12px 版是 19.5k）。没有的字显示空心方框。
   - 12px 字库不压缩，开机时直接复制到内存；10px 字库用 apultra 压缩后作为资源（`FNT1`）放进固件，
     选了 10px 后开机时再解压覆盖。设置保存在 `ui-settings.txt` 的 `font_size`（0 = 12px，1 = 10px）。
-  - **安全启动**：开机时按住 **SELECT** 键，本次忽略保存的字体设置，用默认的 12px 启动。
-    万一 10px 设置导致无法启动，不用拔卡改文件。进设置保存一次，就会把默认值写回去。
+  - **默认设置启动**：固件启动（出现 SuperFW 页面）时按住 **R** 键，本次完全不读取 SD 卡上的设置
+    （`settings.txt` 和 `ui-settings.txt`），全部用默认值（12px 字体、英文、默认主题），屏幕下方会显示
+    "R held: using default settings"。从 DS 上运行 GBA 卡带时也一样，按的是固件启动那一刻。
+    万一某个设置导致无法启动，不用拔卡改文件。进设置保存一次，就会把默认值写回 SD 卡。
   - SuperChis 版固件里 ROM 资源区在 0x190000 之前，字库和模拟器都放在这里，所以第二套字库必须压缩。
 - 字体包：`res/fonts-ext.pack`（12px）和 `res/fonts-ext-10px.pack`（10px）是 SuperChis 版实际使用的，多了预组合的韩文音节；
   `res/fonts.pack`（12px，Lite/SD 版）没有编译测试。**注意**：0.22.1 只更新了 `fonts.pack`，
@@ -43,7 +45,9 @@
 - 英文（ASCII）字形现在放在字库里（跟随字体大小），固件内置的 12px 英文字库只作为后备。
 - 文件列表的图标改成 12 行高（16×12），并新增了 Game Gear、SG-1000、Super Vision、Neo Geo Pocket、
   Neo Geo Pocket Color、PC Engine 六种平台的图标（原来显示为通用文件图标）。图标按扩展名识别。
-- 韩文、俄文、希腊文、带音标的拉丁字母仍使用原来的 16 像素字体。
+- 带音标的拉丁字母（Latin-1 / 扩展 A、B）、希腊文、西里尔文、韩文也改用 Fusion Pixel（跟随字体大小）。
+  拉丁、希腊、西里尔里 Fusion Pixel 没有、或比 8 像素更宽的少数字符，仍回退到原来的 16 像素字体。
+  韩文音节 11172 个全部有，字库也因此变小（10px 版固件里压缩前 660 KB，12px 版 790 KB）。
 - 字体生成工具见 `res/fonts/`：`fusion2hex.py`（BDF 转换，`--size 10|12`）和 `generator.py`（新增 12、10 像素宽块类型），
   命令写在 `res/fonts/README.md`。用旧参数重新生成仍能逐字节还原原来的字体文件。
 

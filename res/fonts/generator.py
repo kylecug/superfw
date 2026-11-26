@@ -102,6 +102,7 @@ blocks = {
   "katakana12": (0x30A0, 0x30FF, 12),
   "cjk-uni12":  (0x4E00, 0x9FEF, 12),
   "fixwidth12": (0xFF01, 0xFF20, 12),
+  "hangul12":   (0xAC00, 0xD7A3, 12),   # Precomposed hangul syllables (ko font)
 
   # 10 pixel wide variants (Fusion Pixel), glyphs come from --font-files-10
   "cjk-sym10":  (0x3000, 0x3009, 10),
@@ -109,6 +110,7 @@ blocks = {
   "katakana10": (0x30A0, 0x30FF, 10),
   "cjk-uni10":  (0x4E00, 0x9FEF, 10),
   "fixwidth10": (0xFF01, 0xFF20, 10),
+  "hangul10":   (0xAC00, 0xD7A3, 10),
 
   # Composable char blocks
   "hangul-part": (0x20000, 0x200CC, 16, ["hangul"]),   # Full-width hangul composite syllable.

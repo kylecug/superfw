@@ -38,7 +38,18 @@ CJK_RANGES = [
   (0x3000, 0x3009),   # CJK symbols and punctuation
   (0x3040, 0x30FF),   # Hiragana and katakana
   (0x4E00, 0x9FEF),   # Unified ideographs
+  (0xAC00, 0xD7A3),   # Hangul syllables (needs the ko font in --cjk-bdf)
   (0xFF01, 0xFF20),   # Full-width forms
+]
+
+# Proportional glyphs (8 columns max, wider ones are skipped and the generator falls back
+# to the unscii glyphs): ASCII, Latin-1, Latin Extended A/B, Greek and Cyrillic.
+ASCII_RANGES = [
+  (0x20, 0x7E),
+  (0xA0, 0xFF),
+  (0x100, 0x24F),
+  (0x370, 0x3FF),
+  (0x400, 0x4FF),
 ]
 
 def parse_bdf(path):
@@ -88,7 +99,8 @@ def cell_rows(g, ascent, pad, cellw):
 # ASCII
 afonts = [parse_bdf(p) for p in args.ascii_bdf]
 out = []
-for cp in range(0x20, 0x7F):
+for lo, hi in ASCII_RANGES:
+ for cp in range(lo, hi + 1):
   rows = None
   for gl, asc, pad in afonts:
     if cp in gl:

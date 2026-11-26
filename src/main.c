@@ -129,7 +129,16 @@ uint32_t systime() {
   return (frame_count * 50) / 3;
 }
 
+// Holding R while the SuperFW firmware starts (that is, when its page shows up, no matter whether
+// the console was powered on or the cart was launched from a DS) makes it ignore the settings
+// stored in the SD card and use the defaults. Handy if a setting prevents the menu from working.
+static inline bool defaults_key_held() {
+  return ((~REG_KEYINPUT) & KEY_BUTTR) != 0;
+}
+
 static int main_gba() {
+  bool use_defaults = defaults_key_held();
+
   // Setup (if enabled) the SIO in UART mode so we can log stuff.
   #ifdef ENABLE_UART_LOGGING
     REG_RCNT   = 0x0000;
@@ -148,6 +157,7 @@ static int main_gba() {
 
   // This hangs on failure since it is fatal.
   init_sdcard_and_mount();
+  use_defaults |= defaults_key_held();
 
   // Check if we need to save SRAM before doing anything else.
   check_pending_saves();
@@ -155,8 +165,13 @@ static int main_gba() {
   // Check if there's a pending SRAM test and perform it.
   int sram_tres = check_peding_sram_test();
 
-  // Load settings files
-  load_settings();
+  // Load settings files (unless R is held, sample it once more since SD init takes a while)
+  use_defaults |= defaults_key_held();
+  if (use_defaults) {
+    display_info_msg("R held: using default settings");
+  } else {
+    load_settings();
+  }
 
   // Load patchdb info.
   set_supercard_mode(MAPPED_SDRAM, true, false);
